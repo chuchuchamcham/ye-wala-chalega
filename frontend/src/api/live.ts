@@ -90,7 +90,37 @@ export const liveApi = {
   createZone: (id: string, zone: { label: string; shape: "rectangle" | "polygon"; points: number[][] }) =>
     api.post<{ zone_id: string; label: string }>(`/api/live/cameras/${id}/zones`, zone),
   recentEvents: (limit = 100) => api.get<LiveEvent[]>(`/api/live/events?limit=${limit}`),
+  onvifScan: () => api.post<OnvifScanResult>("/api/live/onvif/scan"),
+  onvifProfiles: (login: OnvifLogin) => api.post<OnvifProfile[]>("/api/live/onvif/profiles", login),
+  onvifAdd: (req: OnvifLogin & { profile_token: string; name: string; location: string | null }) =>
+    api.post<LiveCamera>("/api/live/onvif/add", req),
 };
+
+export interface OnvifCamera {
+  address: string;
+  xaddr: string;
+  name: string | null;
+  hardware: string | null;
+}
+
+export interface OnvifScanResult {
+  interfaces: string[];
+  cameras: OnvifCamera[];
+}
+
+export interface OnvifLogin {
+  xaddr: string;
+  username: string;
+  password: string;
+}
+
+export interface OnvifProfile {
+  token: string;
+  name: string;
+  width: number | null;
+  height: number | null;
+  encoding: string | null;
+}
 
 /** MJPEG feed URL. Used directly as an <img> src - the browser renders a
  * multipart stream natively, so no player library is involved. The cache

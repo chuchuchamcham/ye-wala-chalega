@@ -3,6 +3,7 @@ import { Loader2, Plus, Smartphone } from "lucide-react";
 import { ApiError } from "../../api/client";
 import { api } from "../../api/client";
 import type { LiveCamera } from "../../api/live";
+import { OnvifScanPanel } from "./OnvifScanPanel";
 import { PhoneCameraPanel } from "./PhoneCameraPanel";
 
 type Preset = "phone" | "rtsp" | "app" | "file";
@@ -98,9 +99,10 @@ export function AddCameraForm({ onAdded }: { onAdded: (camera?: LiveCamera) => v
         <PhoneCameraPanel onAdded={() => onAdded()} />
       ) : (
         <>
+      {preset === "rtsp" && <OnvifScanPanel onAdded={onAdded} />}
       <div className="flex items-start gap-2 rounded border border-border-1 bg-bg-1 px-3 py-2 text-[11.5px] text-text-tertiary">
         {preset === "app" && <Smartphone size={14} className="mt-[1px] shrink-0" />}
-        <span>{active.hint}</span>
+        <span>{preset === "rtsp" ? `Or enter the address yourself. ${active.hint}` : active.hint}</span>
       </div>
 
       <input

@@ -15,6 +15,7 @@ import { Login } from "./pages/Login";
 import { Processing } from "./pages/Processing";
 import { Results } from "./pages/Results";
 import { Settings } from "./pages/Settings";
+import { SiteMap } from "./pages/SiteMap";
 import { SystemStatusPage } from "./pages/SystemStatusPage";
 
 export default function App() {
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/live" element={<LiveMonitor />} />
         <Route path="/analyst" element={<Analyst user={session.user} />} />
+        <Route path="/map" element={<SiteMap user={session.user} />} />
         <Route path="/devices" element={<Devices />} />
         <Route path="/analysis" element={<Analysis />} />
         <Route path="/processing/:jobId" element={<Processing />} />

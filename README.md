@@ -55,9 +55,19 @@ Two cameras start automatically, looping the demo clips in `uploads/`:
   **ANPR**, and set the watchlist plate to `TEST123`. You should get
   `PLATE_CONFIRMED` at ~100% and `TARGET_VEHICLE_FOUND`.
 
-Add your own camera with any RTSP URL or a video file path. To use a phone as
-a camera, open **Connect Device** — that page needs HTTPS, which
-`scripts/make_dev_cert.py` sets up on port 8443.
+Add your own camera with any RTSP URL or a video file path. For an IP camera
+of any brand, **Add camera → IP / CCTV → Scan network** finds every ONVIF
+camera on this network; pick one, log in with the camera's own username and
+password, and Drishti asks the camera for its stream address itself. If
+nothing answers, check that ONVIF is switched on in the camera's settings
+(some brands ship with it off) and that Windows Firewall allows Python. To
+use a phone as a camera, open **Connect Device** — that page needs HTTPS,
+which `scripts/make_dev_cert.py` sets up on port 8443.
+
+**Site Map** shows every camera on an uploaded site plan or satellite
+picture. Click a camera to place it, drag to adjust. Markers turn red on an
+alarm, and arrows trace where a watched person or vehicle was seen across
+cameras in the last 30 minutes.
 
 - **CAM-01's restricted zone** is already drawn across the walkway. Watch the
   outline: it turns amber and logs `ZONE_APPROACH` while someone is still
@@ -82,7 +92,7 @@ Every threshold is in `ZoneConfig` (`backend/config.py`):
 | `approach_cooldown_sec` | 20.0 | Minimum gap before the same track warns again. |
 
 ```bash
-pytest backend/tests -q      # 346 tests
+pytest backend/tests -q      # 363 tests
 ```
 
 ### AI Analyst

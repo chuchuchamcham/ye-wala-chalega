@@ -34,6 +34,8 @@ from backend.api.auth import _token_from, decode_token, has_users, is_public_pat
 from backend.api.auth_routes import router as auth_router
 from backend.api.jobs import job_manager
 from backend.api.live import router as live_router
+from backend.api.map_routes import router as map_router
+from backend.api.onvif_routes import router as onvif_router
 from backend.api.schemas import (
     AnprModuleRequest, BehaviorModuleRequest, CombinedJobRequest, EvidenceItemOut,
     JobStatusOut, LowlightModuleRequest, PersonIdModuleRequest, PlateSearchRequest,
@@ -97,6 +99,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Drishti API", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(live_router)
+app.include_router(onvif_router)
+app.include_router(map_router)
 app.include_router(agent_router)
 
 
