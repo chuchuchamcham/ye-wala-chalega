@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Drishti Sensor</title>
+<meta name="theme-color" content="#0a0f16">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; min-height: 100vh; background: #0a0f16; color: #e6edf3;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+  }
+  header { display: flex; align-items: center; justify-content: space-between;
+           gap: 12px; padding: 16px 0 12px; border-bottom: 1px solid #1e2a38; }
+  .brand { font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: #8aa0b6; }
+  .conn { font-size: 12px; color: #8aa0b6; }
+  main { flex: 1; display: flex; flex-direction: column; align-items: center;
+         text-align: center; gap: 18px; padding: 24px 0; }
+  .state { font-size: 13px; letter-spacing: .2em; text-transform: uppercase; color: #8aa0b6; }
+  h1 { font-size: clamp(26px, 8vw, 44px); font-weight: 800; line-height: 1.1; margin: 0; }
+  .sub { font-size: 15px; color: #b6c6d6; max-width: 560px; margin: 0; line-height: 1.45; }
+  .meta { font-size: 13px; color: #7c8b9a; max-width: 560px; line-height: 1.45; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 14px;
+           padding: 18px 30px; font-size: 18px; cursor: pointer; min-width: 240px; }
+  .arm { background: #1f6feb; color: #fff; }
+  .plain { background: #30363d; color: #e6edf3; }
+  .meters { width: 100%; max-width: 520px; display: grid; gap: 12px; }
+  .meter { text-align: left; font-size: 13px; color: #8aa0b6; }
+  .bar { height: 14px; border-radius: 7px; background: #16212a; overflow: hidden; margin-top: 5px; position: relative; }
+  .fill { height: 100%; width: 0; background: #31c48d; transition: width .1s linear; }
+  .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: #f2a33a; }
+  body.hot { background: #2b1606; }
+  body.sent { background: #2b0b0b; }
+  #log { font-size: 12px; color: #7c8b9a; max-width: 520px; width: 100%; text-align: left; }
+  #log div { padding: 4px 0; border-top: 1px solid #1e2a38; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">Drishti · Sensor</span>
+  <span class="conn" id="conn">not started</span>
+</header>
+<main>
+  <span class="state" id="kind">Sensor</span>
+  <h1 id="name">Loading…</h1>
+  <p class="sub" id="sub">This phone listens for the steady hum of a drone's propellers and reports it to the post.</p>
+  <button class="arm" id="start">Start listening</button>
+  <div class="meters" id="meters" hidden>
+    <div class="meter">Loudness above background <span id="dbv"></span>
+      <div class="bar"><div class="fill" id="db"></div><div class="mark" id="dbmark"></div></div></div>
+    <div class="meter">Steady hum (tonal, like propellers) <span id="tonev"></span>
+      <div class="bar"><div class="fill" id="tone"></div><div class="mark" id="tonemark"></div></div></div>
+  </div>
+  <button class="plain" id="manual" hidden>Report a trip now</button>
+  <p class="meta">How it decides: a sound at least 12 dB above the room's background, with most of its
+    energy in a few steady tones (as propellers make), held for 1.5 seconds. Wind, talking and claps are
+    broadband or short and usually do not qualify. This is a simple stand-in for a real acoustic array,
+    not a drone classifier.</p>
+  <div id="log"></div>
+</main>
+<script>
+(() => {
+  const params = new URLSearchParams(location.hash.slice(1));
+  const id = params.get("id"), key = params.get("key");
+  const $ = (x) => document.getElementById(x);
+  const RISE_DB = 12, TONAL = 0.55, HOLD_MS = 1500, COOLDOWN_MS = 20000;
+  $("dbmark").style.left = (RISE_DB / 30 * 100) + "%";
+  $("tonemark").style.left = (TONAL * 100) + "%";
+
+  function log(text) {
+    const row = document.createElement("div");
+    row.textContent = new Date().toLocaleTimeString() + "  " + text;
+    $("log").prepend(row);
+  }
+
+  if (!id || !key) {
+    $("name").textContent = "No sensor key";
+    $("sub").textContent = "Open this page from the QR code on the Sensors page, so it carries the sensor's id and key.";
+    $("start").hidden = true;
+    return;
+  }
+
+  const headers = { "X-Sensor-Key": key, "Content-Type": "application/json" };
+  fetch(`/api/sensors/hook/${encodeURIComponent(id)}/info`, { headers })
+    .then((r) => r.ok ? r.json() : Promise.reject(r.status))
+    .then((info) => {
+      $("name").textContent = info.name;
+      $("kind").textContent = info.label;
+      $("conn").textContent = "key accepted";
+    })
+    .catch(() => { $("name").textContent = "Key not accepted"; $("conn").textContent = "rejected"; });
+
+  let lastSent = 0;
+  async function report(detail) {
+    const now = Date.now();
+    if (now - lastSent < COOLDOWN_MS) return;
+    lastSent = now;
+    document.body.className = "sent";
+    setTimeout(() => { document.body.className = ""; }, 3000);
+    try {
+      const r = await fetch(`/api/sensors/hook/${encodeURIComponent(id)}`,
+        { method: "POST", headers, body: JSON.stringify({ detail }) });
+      const body = await r.json().catch(() => ({}));
+      log(r.ok ? `sent: ${detail}` : `not accepted (${r.status})`);
+      $("conn").textContent = r.ok ? "last report delivered" : "report failed";
+    } catch {
+      log("could not reach the post");
+      $("conn").textContent = "offline";
+    }
+  }
+
+  $("manual").onclick = () => { lastSent = 0; report("reported by hand"); };
+
+  $("start").onclick = async () => {
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+    } catch {
+      $("sub").textContent = "Microphone not available. The page must be opened over https and the microphone allowed.";
+      return;
+    }
+    $("start").hidden = true;
+    $("meters").hidden = false;
+    $("manual").hidden = false;
+    $("conn").textContent = "listening";
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 4096;
+    analyser.smoothingTimeConstant = 0.6;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const bins = new Float32Array(analyser.frequencyBinCount);
+    const hz = ctx.sampleRate / analyser.fftSize;
+    const lo = Math.floor(100 / hz), hi = Math.ceil(4000 / hz);
+    let floor = null, hotSince = 0;
+    // Keep the screen awake while listening, where the browser allows it.
+    try { navigator.wakeLock && navigator.wakeLock.request("screen"); } catch {}
+
+    function tick() {
+      analyser.getFloatFrequencyData(bins);
+      let power = 0;
+      const p = [];
+      for (let i = lo; i <= hi; i++) { const v = Math.pow(10, bins[i] / 10); p.push(v); power += v; }
+      const level = 10 * Math.log10(power + 1e-12);
+      // Background tracks quiet moments quickly and loud ones slowly, so a
+      // long hum does not become the new normal.
+      if (floor === null) floor = level;
+      floor += (level < floor ? 0.2 : 0.002) * (level - floor);
+      const rise = level - floor;
+      // Share of the band's energy in its 8 strongest peaks: near 1 for a
+      // few steady tones, low for wind, rain or speech.
+      const sorted = p.slice().sort((a, b) => b - a);
+      let top = 0;
+      for (let i = 0; i < 8; i++) top += sorted[i] || 0;
+      const tonal = top / (power + 1e-12);
+      let peak = 0;
+      for (let i = 1; i < p.length; i++) if (p[i] > p[peak]) peak = i;
+
+      $("db").style.width = Math.max(0, Math.min(100, rise / 30 * 100)) + "%";
+      $("dbv").textContent = `${rise.toFixed(0)} dB`;
+      $("tone").style.width = Math.min(100, tonal * 100) + "%";
+      $("tonev").textContent = tonal.toFixed(2);
+
+      const hot = rise >= RISE_DB && tonal >= TONAL;
+      const now = performance.now();
+      if (hot) {
+        hotSince = hotSince || now;
+        document.body.className = document.body.className === "sent" ? "sent" : "hot";
+        if (now - hotSince >= HOLD_MS) {
+          report(`steady hum near ${Math.round((peak + lo) * hz)} Hz, ${rise.toFixed(0)} dB above background`);
+          hotSince = 0;
+        }
+      } else {
+        hotSince = 0;
+        if (document.body.className === "hot") document.body.className = "";
+      }
+      requestAnimationFrame(tick);
+    }
+    tick();
+  };
+})();
+</script>
+</body>
+</html>

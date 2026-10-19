@@ -1,5 +1,5 @@
 import {
-  Activity, Bot, Car, Eye, LayoutDashboard, ListChecks, Map as MapIcon, Moon, Radio, Scan, ScrollText,
+  Activity, Bot, Car, Eye, LayoutDashboard, ListChecks, Map as MapIcon, Moon, Radio, RadioTower, Scan, ScanSearch, ScrollText,
   Search, Server, Settings, ShieldAlert, Siren, Smartphone, Users,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -13,6 +13,7 @@ const primaryLinks = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/live", label: "Live Monitor", icon: Radio },
   { to: "/map", label: "Site Map", icon: MapIcon },
+  { to: "/sensors", label: "Sensors", icon: RadioTower },
   { to: "/analyst", label: "AI Analyst", icon: Bot },
   { to: "/devices", label: "Connect Device", icon: Smartphone },
   { to: "/analysis", label: "Forensic Analysis", icon: Scan },
@@ -20,6 +21,7 @@ const primaryLinks = [
   { to: "/events", label: "Events", icon: Activity },
   { to: "/audit", label: "Audit Log", icon: ScrollText },
   { to: "/anpr-search", label: "ANPR Search", icon: Search },
+  { to: "/appearance-search", label: "Appearance Search", icon: ScanSearch },
 ];
 
 // These all deep-link into the Analysis page's module selection (via

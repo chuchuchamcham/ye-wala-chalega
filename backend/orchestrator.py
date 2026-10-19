@@ -140,6 +140,11 @@ class OrchestratorRequest:
     tracker_config: TrackerConfig | None = None
     evidence_dir: Path | None = None
 
+    # Live only: called each frame with the clean image and what is in view,
+    # as (track_id, coco_class_id, bbox) tuples. Group counting and search
+    # crops read it; nothing in the analysis depends on it.
+    observe_tracks: Callable[[object, list[tuple[int, int, tuple[int, int, int, int]]]], None] | None = None
+
 
 @dataclass
 class OrchestratorResult:
@@ -639,6 +644,24 @@ class CombinedPipeline:
                             else:
                                 lines = ["BEHAVIOR ALERT", f"{_BEHAVIOR_LABEL[ev.type]} - {cname} #{ev.track_id}", format_timestamp(ev.timestamp_sec)]
                             active_banners.append((lines, _BEHAVIOR_BANNER_COLOR[ev.type], frame.index + banner_frames))
+
+                    # ---------------- observers ----------------
+                    # Before anything is drawn, so crops taken here are clean.
+                    # The shared tracker sees people and vehicles; a camera
+                    # running only person ID has just the person tracker.
+                    if req.observe_tracks is not None:
+                        if tracker is not None:
+                            seen = [(t.track_id, t.class_id, t.bbox) for t in tracks_by_id.values()]
+                        elif req.enable_person_id:
+                            seen = [(t.track_id, self.tracker_config.person_class_id, t.bbox)
+                                    for t in person_tracks_by_id.values()]
+                        else:
+                            seen = []
+                        try:
+                            req.observe_tracks(frame.image, seen)
+                        except Exception:  # an observer must never stop analysis
+                            import logging
+                            logging.getLogger("backend.orchestrator").exception("track observer failed")
 
                     # ---------------- annotation ----------------
                     for polygon_px, zone, monitor in zip(zone_polygons_px, req.zones, zone_monitors):

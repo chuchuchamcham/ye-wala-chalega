@@ -57,6 +57,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   postForm: <T>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
+  del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
 /** Absolute-ish URL for a media resource (video/image) served by the API -

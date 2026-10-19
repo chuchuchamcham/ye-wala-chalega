@@ -65,6 +65,9 @@ class Brief:
     incident: dict
     proposal_ids: list[str] = field(default_factory=list)
     note: str | None = None
+    # The events this brief covers, so a device holding one alarm (the siren
+    # phone) can find the brief that explains it.
+    event_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -186,6 +189,7 @@ class AgentService:
             )
             data = {"model": "template", "note": note}
             reason = "Brief written from rules; no AI model was available."
+        brief.event_ids = [e.get("event_id") for e in incident.events if e.get("event_id")]
         self.audit.record("AGENT_BRIEF", reason,
                           {"incident_id": incident.incident_id, "brief_id": brief.brief_id, "text": brief.text, **data},
                           incident.camera_id, incident.camera_name)
@@ -249,6 +253,14 @@ class AgentService:
     def briefs(self, limit: int = 50) -> list[dict]:
         with self._lock:
             return [b.to_dict() for b in reversed(self._briefs[-limit:])]
+
+    def brief_for_event(self, event_id: str) -> dict | None:
+        """The newest brief covering this event, if one has been written."""
+        with self._lock:
+            for brief in reversed(self._briefs):
+                if event_id in brief.event_ids:
+                    return brief.to_dict()
+        return None
 
     def proposals(self, status: str | None = None) -> list[dict]:
         with self._lock:

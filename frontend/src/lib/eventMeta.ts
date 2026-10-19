@@ -1,6 +1,6 @@
 import {
   AlertTriangle, Car, Clock, Crosshair, Eye, Footprints, Gauge, MapPinOff,
-  Navigation, ShieldAlert, Sparkles, TriangleAlert, type LucideIcon,
+  Megaphone, Navigation, Plane, RadioTower, ShieldAlert, Sparkles, TriangleAlert, Users, type LucideIcon,
 } from "lucide-react";
 
 export type Severity = "red" | "amber" | "green" | "blue" | "neutral";
@@ -34,6 +34,7 @@ const REGISTRY: Record<string, EventMeta> = {
   LONG_DWELL: { label: "Long Dwell", severity: "amber", icon: Clock },
   TARGET_ZONE_INTRUSION: { label: "Target Zone Intrusion", severity: "red", icon: ShieldAlert },
   LOITERING: { label: "Loitering", severity: "amber", icon: Footprints },
+  GROUP_GATHERING: { label: "Group Gathering", severity: "amber", icon: Users },
   SUDDEN_DIRECTION_CHANGE: { label: "Sudden Direction Change", severity: "amber", icon: TriangleAlert },
   ABNORMAL_SPEED: { label: "Abnormal Speed", severity: "amber", icon: Gauge },
   REPEATED_BACK_AND_FORTH: { label: "Repeated Pacing", severity: "amber", icon: Footprints },
@@ -46,6 +47,13 @@ const REGISTRY: Record<string, EventMeta> = {
   CAMERA_TAMPERED: { label: "Camera Tampering", severity: "red", icon: ShieldAlert },
   CAMERA_SABOTAGE_SUSPECTED: { label: "Possible Sabotage", severity: "red", icon: ShieldAlert },
   CAMERA_VIEW_RESTORED: { label: "Camera View Restored", severity: "green", icon: Eye },
+  // Sensor fusion (backend/live/sensors.py): a sensor trip checked on camera.
+  SENSOR_TRIGGERED: { label: "Sensor Tripped", severity: "amber", icon: RadioTower },
+  SENSOR_ALARM_CONFIRMED: { label: "Sensor Alarm Confirmed", severity: "red", icon: RadioTower },
+  SENSOR_ALARM_UNVERIFIED: { label: "Sensor Alarm Unchecked", severity: "red", icon: RadioTower },
+  SENSOR_ALARM_UNCONFIRMED: { label: "Sensor Trip, Nothing Seen", severity: "neutral", icon: RadioTower },
+  TALKDOWN_ISSUED: { label: "Spoken Warning Played", severity: "blue", icon: Megaphone },
+  DRONE_SUSPECTED: { label: "Possible Drone", severity: "red", icon: Plane },
   // AI analyst records (backend/agent). Always informational: the analyst
   // explains and proposes, it never raises an alarm.
   AGENT_BRIEF: { label: "AI Brief", severity: "blue", icon: Sparkles },

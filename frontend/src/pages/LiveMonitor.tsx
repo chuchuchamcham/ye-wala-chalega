@@ -9,6 +9,7 @@ import { AddCameraForm } from "../components/live/AddCameraForm";
 import { CameraHealthPanel } from "../components/live/CameraHealthPanel";
 import { CameraSetupPanel } from "../components/live/CameraSetupPanel";
 import { EvidencePanel } from "../components/live/EvidencePanel";
+import { TalkDownControls } from "../components/live/TalkDownControls";
 import { eventMeta } from "../lib/eventMeta";
 import { liveApi, streamUrl, type LiveCamera, type LiveEvent } from "../api/live";
 import { useLiveEvents } from "../hooks/useLiveEvents";
@@ -386,6 +387,7 @@ export function LiveMonitor() {
                   </div>
                 ))}
               </div>
+              <TalkDownControls camera={selected} />
               {selected.analysis_error && (
                 <div className="rounded border border-accent-red/35 bg-accent-red/10 px-3 py-2 text-[12px] text-accent-red">
                   Analysis error: {selected.analysis_error}

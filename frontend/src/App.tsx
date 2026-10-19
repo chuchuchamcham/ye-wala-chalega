@@ -16,6 +16,8 @@ import { Processing } from "./pages/Processing";
 import { Results } from "./pages/Results";
 import { Settings } from "./pages/Settings";
 import { SiteMap } from "./pages/SiteMap";
+import { Sensors } from "./pages/Sensors";
+import { AppearanceSearch } from "./pages/AppearanceSearch";
 import { SystemStatusPage } from "./pages/SystemStatusPage";
 
 export default function App() {
@@ -56,6 +58,7 @@ export default function App() {
         <Route path="/live" element={<LiveMonitor />} />
         <Route path="/analyst" element={<Analyst user={session.user} />} />
         <Route path="/map" element={<SiteMap user={session.user} />} />
+        <Route path="/sensors" element={<Sensors user={session.user} />} />
         <Route path="/devices" element={<Devices />} />
         <Route path="/analysis" element={<Analysis />} />
         <Route path="/processing/:jobId" element={<Processing />} />
@@ -64,6 +67,7 @@ export default function App() {
         <Route path="/events" element={<Events />} />
         <Route path="/audit" element={<AuditLog />} />
         <Route path="/anpr-search" element={<AnprSearch />} />
+        <Route path="/appearance-search" element={<AppearanceSearch />} />
         <Route path="/system" element={<SystemStatusPage />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>

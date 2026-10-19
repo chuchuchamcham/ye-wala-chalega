@@ -56,3 +56,7 @@ certs/
 # event database - publishing any of them would let anyone forge a session.
 # The directory is recreated on startup, so nothing here belongs in source.
 data/
+
+# The appearance-search model (about 600 MB) is downloaded once by
+# scripts/download_search_model.py, not committed.
+models/clip/

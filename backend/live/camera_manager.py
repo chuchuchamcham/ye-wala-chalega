@@ -33,6 +33,7 @@ from backend.core.video import (
     DEFAULT_MAX_ANALYSIS_WIDTH, LiveStreamReader, OFFLINE, ONLINE, PUSH_SCHEME,
     PushStreamReader, RECONNECTING, STOPPED, VideoOpenError,
 )
+from backend.live.crowd import PERSON_CLASS, GroupWatch
 from backend.live.evidence import EvidenceRecorder
 from backend.live.tamper import TamperMonitor, TamperReading, TappedReader
 from backend.live.target_registry import target_registry
@@ -249,6 +250,9 @@ class LiveSession:
         self._last_health: str | None = None
         self.evidence = EvidenceRecorder(camera.camera_id, EVIDENCE_DIR / "live")
         self.tamper = TamperMonitor()
+        self.groups = GroupWatch()
+        # Extra per-frame observers of what is in view (search crops, say).
+        self.track_observers: list = []
         self._fault_until: float = 0.0
 
     def _new_reader(self):
@@ -425,6 +429,7 @@ class LiveSession:
             enable_behavior=spec.behavior,
             behavior_config=spec.behavior_config or live_behavior_config(),
             enable_lowlight=spec.lowlight,
+            observe_tracks=self._observe_tracks,
         )
         pipeline = CombinedPipeline(request)
         # Frame dimensions must be known before the pipeline can scale zone
@@ -452,6 +457,17 @@ class LiveSession:
             }})
         elif result == "restored":
             self.emit_event({"type": "CAMERA_VIEW_RESTORED", "data": {}})
+
+    def _observe_tracks(self, image, tracks) -> None:
+        people = sum(1 for _tid, cls, _box in tracks if cls == PERSON_CLASS)
+        group = self.groups.observe(people)
+        if group is not None:
+            self.emit_event({"type": "GROUP_GATHERING", "data": group})
+        for observer in list(self.track_observers):
+            try:
+                observer(self, image, tracks)
+            except Exception:
+                logger.exception("track observer failed on %s", self.camera.camera_id)
 
     def _on_analysed_frame(self, image, new_events: list[dict]) -> None:
         self._publish(image)
@@ -720,6 +736,12 @@ class CameraManager:
         self._subscriber_lock = threading.Lock()
         self._monitor: threading.Thread | None = None
         self._monitor_stop = threading.Event()
+        # Events raised by something other than a camera (a fence sensor with
+        # no camera linked, say). Kept here so dashboards backfill them too.
+        self._unattached: deque[dict] = deque(maxlen=LiveSession.MAX_RECENT_EVENTS)
+        # Called with (session, clean image, tracks) on every analysed frame of
+        # every camera, including cameras added later.
+        self._track_observers: list = []
         # One store for the whole fleet: a single chain over all cameras means
         # removing a camera's records breaks the shared sequence too.
         self.store = EventStore(EVENT_DB_PATH)
@@ -809,10 +831,48 @@ class CameraManager:
             except Exception:
                 logger.exception("global event subscriber failed")
 
+    def emit_unattached(self, event: dict, source_id: str, source_name: str) -> dict:
+        """Publish an event that no camera raised, through the same log,
+        siren and dashboards as a camera's. Severity and reason come from the
+        same rules, so a sensor alarm is never treated differently from a
+        camera alarm of the same weight."""
+        severity = severity_for(event)
+        enriched = {
+            "track_id": None, "frame_index": None, "timestamp_sec": 0.0,
+            **event,
+            "event_id": uuid.uuid4().hex[:12],
+            "seq": None,
+            "camera_id": source_id,
+            "camera_name": source_name,
+            "severity": severity,
+            "reason": describe_event(event),
+            "alarm": severity in ALARM_SEVERITIES,
+            "wall_time": time.time(),
+        }
+        self._unattached.append(enriched)
+        self.store.record(enriched)
+        self._fanout(enriched)
+        return enriched
+
+    def add_track_observer(self, observer) -> None:
+        self._track_observers.append(observer)
+        for session in self.list():
+            session.track_observers.append(observer)
+
+    def find_by_name(self, name: str) -> LiveSession | None:
+        """The camera an operator calls `name`, ignoring case and spacing.
+        Sensors, like the site map, refer to cameras by name because ids
+        change when a camera is registered again."""
+        wanted = " ".join(name.split()).lower()
+        for session in self.list():
+            if " ".join(session.camera.name.split()).lower() == wanted:
+                return session
+        return None
+
     def recent_events(self, limit: int = 100, camera_id: str | None = None) -> list[dict]:
         """Recent events across the fleet, newest last."""
         sessions = [self.get(camera_id)] if camera_id else self.list()
-        collected: list[dict] = []
+        collected: list[dict] = [] if camera_id else list(self._unattached)
         for session in sessions:
             if session is not None:
                 collected.extend(session.recent_events(limit))
@@ -828,6 +888,7 @@ class CameraManager:
         )
         session = LiveSession(camera, analysis=analysis, store=self.store)
         session.subscribe(self._fanout)
+        session.track_observers.extend(self._track_observers)
         with self._lock:
             self._sessions[camera.camera_id] = session
         return camera

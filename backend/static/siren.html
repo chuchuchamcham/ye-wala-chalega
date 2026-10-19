@@ -73,6 +73,14 @@
   .empty { color: #7c8b9a; font-size: 13px; }
   .voice { display: inline-flex; gap: 8px; align-items: center; color: #7c8b9a; font-size: 13px; margin-top: 10px; }
   .voice select { background: #0f1722; color: #cdd9e5; border: 1px solid #1e2a38; border-radius: 6px; padding: 4px 6px; font: inherit; }
+  /* The picture and brief stay readable over the flashing background. */
+  .evidence { display: none; width: 100%; max-width: 560px; background: #0a0f16; border-radius: 12px;
+              border: 1px solid #1e2a38; overflow: hidden; text-align: left; }
+  .evidence.show { display: block; }
+  .evidence img { display: none; width: 100%; max-height: 38vh; object-fit: contain; background: #000; }
+  .evidence img.show { display: block; }
+  .brief { padding: 10px 12px; font-size: 14px; line-height: 1.45; color: #cdd9e5; white-space: pre-line; }
+  .brief .who { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #7c8b9a; margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -87,6 +95,10 @@
     <p class="sub" id="sub">Browsers only allow sound after a tap. Arm once and this device will
        sound automatically on every high-priority alert.</p>
     <div id="badgeWrap"></div>
+    <div class="evidence" id="evidence">
+      <img id="snap" alt="Camera picture at the moment of the alarm">
+      <div class="brief" id="brief"></div>
+    </div>
     <button class="arm" id="armBtn">Arm siren</button>
     <div class="meta" id="meta"></div>
     <!-- Confirms this device can actually make a noise - volume up, not on
@@ -167,6 +179,9 @@
       CAMERA_OFFLINE: "{cam} बंद हो गया",
       CAMERA_TAMPERED: "{cam} से छेड़छाड़ की आशंका",
       CAMERA_SABOTAGE_SUSPECTED: "{cam} बंद हुआ, तोड़फोड़ की आशंका",
+      SENSOR_ALARM_CONFIRMED: "{sensor} पर घुसपैठ, कैमरे ने पुष्टि की",
+      SENSOR_ALARM_UNVERIFIED: "{sensor} सेंसर बजा, कैमरा जांच नहीं कर सका",
+      DRONE_SUSPECTED: "{sensor} पर ड्रोन की आवाज़, ऊपर देखें",
       "SIREN TEST": "सायरन परीक्षण",
       _default: "{cam} पर अलर्ट",
     },
@@ -182,6 +197,9 @@
       CAMERA_OFFLINE: "{cam} has gone offline",
       CAMERA_TAMPERED: "Possible tampering with {cam}",
       CAMERA_SABOTAGE_SUSPECTED: "{cam} went offline. Possible sabotage",
+      SENSOR_ALARM_CONFIRMED: "Intrusion at {sensor}, confirmed on camera",
+      SENSOR_ALARM_UNVERIFIED: "{sensor} tripped. The camera could not check",
+      DRONE_SUSPECTED: "Possible drone near {sensor}. Look up",
       "SIREN TEST": "Siren test",
       _default: "Alert at {cam}",
     },
@@ -225,7 +243,9 @@
     const lang = spokenLang();
     if (!lang) return;
     const phrases = SAY[lang];
-    const text = (phrases[ev.type] || phrases._default).replace("{cam}", ev.camera_name || "");
+    const sensor = (ev.data && ev.data.sensor_name) || ev.camera_name || "";
+    const text = (phrases[ev.type] || phrases._default)
+      .replace("{cam}", ev.camera_name || "").replace("{sensor}", sensor);
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = lang === "hi" ? "hi-IN" : "en-IN";
     const voice = pickVoice(lang);
@@ -249,6 +269,7 @@
     $("armBtn").textContent = "Silence";
     $("armBtn").className = "silence";
 
+    showEvidence(ev);
     startTone();
     if (navigator.vibrate) navigator.vibrate([400, 180, 400, 180, 700]);
     // Let the siren be heard first, then say what happened.
@@ -257,7 +278,45 @@
     alarmTimer = setTimeout(clearAlarm, ALARM_SECONDS * 1000);
   }
 
+  // The picture is written the moment the alarm fires; the AI brief follows a
+  // few seconds later, so it is asked for until it arrives or a minute passes.
+  let briefTimer = null;
+  function showEvidence(ev) {
+    clearTimeout(briefTimer);
+    const box = $("evidence"), img = $("snap"), brief = $("brief");
+    box.className = "evidence";
+    img.className = "";
+    brief.innerHTML = "";
+    if (!ev.event_id || ev.type === "SIREN TEST") return;
+    box.className = "evidence show";
+    const base = "/api/live/siren/alert/" + encodeURIComponent(ev.event_id);
+    if (ev.evidence_bundle) {
+      img.onload = () => { img.className = "show"; };
+      img.onerror = () => { img.className = ""; };
+      img.src = base + "/snapshot.jpg";
+    }
+    brief.innerHTML = '<div class="who">AI brief</div><span>Writing…</span>';
+    let tries = 0;
+    const poll = () => {
+      fetch(base + "/brief").then((r) => r.ok ? r.json() : { status: "gone" }).then((b) => {
+        const body = brief.querySelector("span");
+        if (!body) return;
+        if (b.status === "ready" || b.status === "template") {
+          brief.querySelector(".who").textContent = b.status === "ready" ? "AI brief" : "Brief (written from rules)";
+          body.textContent = b.text;
+        } else if (b.status === "pending" && ++tries < 15) {
+          briefTimer = setTimeout(poll, 4000);
+        } else {
+          brief.innerHTML = "";
+        }
+      }).catch(() => { if (++tries < 15) briefTimer = setTimeout(poll, 4000); });
+    };
+    poll();
+  }
+
   function clearAlarm() {
+    // The picture and brief stay up after Silence: that is when the guard
+    // finally has a moment to look at them. The next alarm replaces them.
     clearTimeout(alarmTimer);
     stopTone();
     if ("speechSynthesis" in window) speechSynthesis.cancel();

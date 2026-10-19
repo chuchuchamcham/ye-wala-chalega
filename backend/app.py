@@ -37,6 +37,12 @@ from backend.api.live import router as live_router
 from backend.api.handover import router as handover_router
 from backend.api.map_routes import router as map_router
 from backend.api.onvif_routes import router as onvif_router
+from backend.api.sensor_routes import router as sensor_router
+from backend.api.sensor_routes import warm_up as warm_up_sensors
+from backend.api.talkdown_routes import router as talkdown_router
+from backend.api.siren_routes import router as siren_router
+from backend.api import search_routes
+from backend.api.talkdown_routes import talkdown
 from backend.api.schemas import (
     AnprModuleRequest, BehaviorModuleRequest, CombinedJobRequest, EvidenceItemOut,
     JobStatusOut, LowlightModuleRequest, PersonIdModuleRequest, PlateSearchRequest,
@@ -77,6 +83,9 @@ async def lifespan(app: FastAPI):
     # Camera health is only useful if something is watching it continuously;
     # this is what turns a dropout into a CAMERA_OFFLINE event.
     camera_manager.start_monitor()
+    warm_up_sensors()
+    talkdown.start()
+    search_routes.start()
     # The AI analyst only reads events and proposes actions, so it starts
     # after the cameras and stops before them; detection never waits on it.
     agent_service = None
@@ -91,6 +100,8 @@ async def lifespan(app: FastAPI):
     if agent_service is not None:
         set_agent_service(None)
         agent_service.stop()
+    talkdown.stop()
+    search_routes.stop()
     camera_manager.stop_monitor()
     # Capture threads are daemons, but stopping them explicitly releases the
     # captures instead of leaving them to be torn down mid-read.
@@ -104,6 +115,10 @@ app.include_router(onvif_router)
 app.include_router(map_router)
 app.include_router(handover_router)
 app.include_router(agent_router)
+app.include_router(sensor_router)
+app.include_router(talkdown_router)
+app.include_router(siren_router)
+app.include_router(search_routes.router)
 
 
 @app.middleware("http")
@@ -472,7 +487,11 @@ if FRONTEND_DIST.is_dir():
         asset = FRONTEND_DIST / full_path
         if full_path and asset.is_file():
             return FileResponse(asset)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        # The shell names the current build's hashed bundle, so it must never
+        # be cached: a browser holding an old copy keeps showing the old
+        # dashboard after an update (new pages missing from the sidebar).
+        # The bundles themselves are named by content hash and cache safely.
+        return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})
 else:
     logger.warning(
         "frontend not built (%s missing) - the API will run but the dashboard "

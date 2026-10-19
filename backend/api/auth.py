@@ -55,10 +55,12 @@ PBKDF2_ROUNDS = 240_000
 # screen. Everything else requires a session.
 PUBLIC_PATHS = {
     "/api/auth/login", "/api/auth/bootstrap", "/api/auth/me",
-    "/api/live/siren", "/api/live/sw.js", "/api/live/phone", "/api/live/siren-app",
+    "/api/live/siren", "/api/live/speaker", "/api/live/sw.js", "/api/live/phone", "/api/live/siren-app",
     "/docs", "/openapi.json", "/redoc",
 }
-PUBLIC_PREFIXES = ("/api/live/siren/",)
+# Sensor hooks carry their own per-sensor key instead of a session; see
+# api/sensor_routes.py.
+PUBLIC_PREFIXES = ("/api/live/siren/", "/api/sensors/hook/")
 
 
 def _secret() -> bytes:

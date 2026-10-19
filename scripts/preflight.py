@@ -122,6 +122,25 @@ def local_ai() -> None:
           "DRISHTI_AGENTS=1" if config.enabled else "off: set DRISHTI_AGENTS=1 before starting to get AI briefs")
 
 
+def search_and_sensors() -> None:
+    from backend.live.appearance import model_available
+    from backend.live.sensors import SensorRegistry
+
+    try:
+        import open_clip  # noqa: F401
+        installed = True
+    except ImportError:
+        installed = False
+    if not installed:
+        check("Appearance search", WARN, "open_clip not installed: search is off (see requirements.txt)")
+    else:
+        check("Appearance search", OK if model_available() else WARN,
+              "model downloaded" if model_available() else "model missing: python scripts/download_search_model.py")
+    sensors = SensorRegistry().list()
+    check("Sensors", OK if sensors else WARN,
+          f"{len(sensors)} configured" if sensors else "none yet: add one on the Sensors page to show sensor fusion")
+
+
 def accounts_and_log() -> None:
     from backend.config import DATA_DIR, EVENT_DB_PATH
 
@@ -151,7 +170,7 @@ def disk() -> None:
 def main() -> int:
     print(f"Drishti pre-flight check - {REPO}\n")
     for step in (python_version, packages, model_files, frontend_build, demo_assets, ports, network,
-                 local_ai, accounts_and_log, disk):
+                 local_ai, search_and_sensors, accounts_and_log, disk):
         try:
             step()
         except Exception as exc:  # a broken check must not hide the others

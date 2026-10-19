@@ -89,6 +89,10 @@ export const liveApi = {
     api.put<LiveCamera>(`/api/live/cameras/${id}/analysis`, config),
   createZone: (id: string, zone: { label: string; shape: "rectangle" | "polygon"; points: number[][] }) =>
     api.post<{ zone_id: string; label: string }>(`/api/live/cameras/${id}/zones`, zone),
+  talkdownStatus: () => api.get<{ auto: boolean; speakers: Record<string, number> }>("/api/live/talkdown"),
+  setTalkdownAuto: (auto: boolean) =>
+    api.put<{ auto: boolean; speakers: Record<string, number> }>("/api/live/talkdown", { auto }),
+  warnNow: (id: string) => api.post<{ reason: string; speakers: number }>(`/api/live/cameras/${id}/talkdown`),
   recentEvents: (limit = 100) => api.get<LiveEvent[]>(`/api/live/events?limit=${limit}`),
   onvifScan: () => api.post<OnvifScanResult>("/api/live/onvif/scan"),
   onvifProfiles: (login: OnvifLogin) => api.post<OnvifProfile[]>("/api/live/onvif/profiles", login),

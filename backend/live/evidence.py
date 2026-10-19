@@ -80,6 +80,13 @@ class EvidenceRecorder:
             while self._buffer and self._buffer[0][0] < horizon:
                 self._buffer.popleft()
 
+    def frames_since(self, since: float) -> list[tuple[float, bytes]]:
+        """Buffered frames recorded at or after `since` (time.monotonic()),
+        oldest first. Lets a sensor alarm look at what the camera saw just
+        before and after it fired."""
+        with self._lock:
+            return [(t, jpeg) for t, jpeg in self._buffer if t >= since]
+
     # --- capture -------------------------------------------------------------
 
     def capture(self, event: dict) -> str | None:

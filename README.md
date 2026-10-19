@@ -92,7 +92,7 @@ Every threshold is in `ZoneConfig` (`backend/config.py`):
 | `approach_cooldown_sec` | 20.0 | Minimum gap before the same track warns again. |
 
 ```bash
-pytest backend/tests -q      # 390 tests
+pytest backend/tests -q      # 429 tests
 ```
 
 ### AI Analyst
@@ -118,6 +118,66 @@ provider's model list (OpenRouter defaults to its `openrouter/free` router).
 `DRISHTI_AGENT_MODEL` and `DRISHTI_LOCAL_MODEL` choose other Claude and local
 models. Whatever is or isn't set up, alarms work exactly the same.
 
+### Sensors (sensor fusion)
+
+Fence vibration, ground, radar and motion sensors trip on animals and wind.
+On the **Sensors** page, link each sensor to a camera. When it trips, Drishti
+runs the person and vehicle detector on that camera's frames from 4 seconds
+before to 6 seconds after, then:
+
+| Camera result | Event | Siren |
+|---|---|---|
+| Person or vehicle seen | `SENSOR_ALARM_CONFIRMED` | Yes |
+| Camera offline, blocked or not linked | `SENSOR_ALARM_UNVERIFIED` | Yes: an unchecked alarm is never dismissed |
+| Nothing seen | `SENSOR_ALARM_UNCONFIRMED` | No; raised to medium on the 3rd trip in 10 minutes |
+
+An **acoustic drone sensor** always sounds (`DRONE_SUSPECTED`): a small drone
+is too high and too small for a ground camera to rule out.
+
+Real sensor hardware reports a trip with one request, using the key shown to
+admins under **Connect**:
+
+```bash
+curl -X POST http://<post-pc>:8000/api/sensors/hook/<sensor-id> -H "X-Sensor-Key: <key>"
+```
+
+The same Connect panel has a QR code for a phone page that does this. For a
+drone sensor it listens to the microphone and reports a loud, steady hum
+held for 1.5 s. That is a stand-in for a real acoustic array, not a drone
+classifier. **Test trip** runs the real check and marks every event it
+produces as a test.
+
+### Talk-down warnings
+
+Open **Live Monitor → Speaker link** on a phone or PC with a loudspeaker near
+the camera, and tap Start speaker. When someone approaches a zone, loiters, a
+group gathers, or a sensor alarm is confirmed on that camera, the speaker
+sounds two tones and then says, in Hindi and English, "Stop. This is a
+restricted border area. You are being watched on camera. Turn back now." It
+says this at most once every 20 seconds. **Warn now** plays it on demand. Each
+warning is logged as `TALKDOWN_ISSUED`, but only when a speaker is actually
+connected.
+
+### Group gathering
+
+`GROUP_GATHERING` (medium) fires when 4 or more people stay in one camera's
+view for most of 10 seconds. It fires again only after the group has broken
+up for 30 seconds. It needs zone or behaviour analysis on that camera.
+
+### Appearance search
+
+**Appearance Search** finds people and vehicles by description ("person
+carrying a blue bag", "white car"). Every tracked person or vehicle leaves its
+clearest picture, which CLIP ViT-B/32 indexes on the CPU, at about 90 ms a
+picture on a Ryzen 5 5500U. Results are ranked for a person to check; the
+page shows the picture each result matched on. It never raises an alarm.
+Colours and clothing work well. Small items such as a backpack are often
+wrong. Install it once:
+
+```bash
+python scripts/download_search_model.py   # about 600 MB into models/clip, then offline
+```
+
 ### Before a demo or a shift
 
 ```bash
@@ -136,7 +196,8 @@ usage statistics the YOLO library would otherwise send (`YOLO_OFFLINE`).
 alarms, cameras, AI briefs, decisions, repeats and the log's integrity check.
 Print it, or save it as PDF from the browser's print dialog.
 
-The **siren page** speaks each alarm after the siren sounds, in Hindi or
+The **siren page** shows each alarm's camera picture and, a few seconds
+later, its AI brief; both stay up after Silence. It also speaks each alarm after the siren sounds, in Hindi or
 English ("CAMERA 01 पर प्रतिबंधित क्षेत्र में घुसपैठ"), using the phone's
 own voices, so it works offline. If the phone has no Hindi voice it says so
 and speaks English; add Hindi under the phone's text-to-speech settings.
@@ -179,6 +240,12 @@ rate — stop the ones you are not watching.
 - **No GPU acceleration.** DeepStream/TensorRT were designed for and are the
   Phase 2 path, but they are NVIDIA-only and none of this was built or
   measured on that hardware.
+- **Appearance search is a ranking, not recognition.** On the demo footage
+  colour and clothing queries put the right person first; small objects
+  (backpacks) often do not. Nothing has been measured on night or thermal video.
+- **The phone drone sensor is a loudness-and-tone rule**, not a trained
+  classifier: generators and motorbikes can trip it. A real deployment
+  would feed a proper acoustic array into the same hook.
 - Model weights in `models/` carry their own licences — YOLOv8n is AGPL-3.0
   (Ultralytics).
 

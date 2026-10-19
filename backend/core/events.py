@@ -43,10 +43,22 @@ EVENT_SEVERITY: dict[str, str] = {
     # and one that dies right after activity nearby may have been cut.
     "CAMERA_TAMPERED": HIGH,
     "CAMERA_SABOTAGE_SUSPECTED": CRITICAL,
+    # Sensor fusion (live/sensors.py). A fence or ground sensor on its own
+    # trips on animals and wind, so its alarm is checked against the camera
+    # first: seen on video is an intrusion; a camera that could not look must
+    # not dismiss it; nothing seen is logged, not sounded.
+    "SENSOR_ALARM_CONFIRMED": CRITICAL,
+    "SENSOR_ALARM_UNVERIFIED": HIGH,
+    # A drone is too small and high for the ground cameras to confirm, so an
+    # acoustic drone alert sounds on the sensor's word alone.
+    "DRONE_SUSPECTED": HIGH,
+    "SENSOR_TRIGGERED": MEDIUM,
+    "SENSOR_ALARM_UNCONFIRMED": LOW,  # MEDIUM when it repeats; see severity_for
     # Something worth an operator's attention, but not an alarm.
     "ZONE_APPROACH": MEDIUM,
     "LONG_DWELL": MEDIUM,
     "LOITERING": MEDIUM,
+    "GROUP_GATHERING": MEDIUM,
     "PLATE_CONFIRMED": MEDIUM,
     "TARGET_LOST": MEDIUM,
     "TARGET_VEHICLE_LOST": MEDIUM,
@@ -62,6 +74,8 @@ EVENT_SEVERITY: dict[str, str] = {
     "LOW_LIGHT": INFO,
     "CAMERA_ONLINE": INFO,
     "CAMERA_VIEW_RESTORED": INFO,
+    # A record that a spoken warning was played, not an alarm in itself.
+    "TALKDOWN_ISSUED": INFO,
 }
 
 # What an external siren/alarm responds to. Deliberately narrow: an alarm that
@@ -89,6 +103,11 @@ def severity_for(event: dict) -> str:
     etype = event.get("type", "")
     if etype == "TARGET_BEHAVIOR_ALERT":
         return CRITICAL if (event.get("data") or {}).get("is_target") else MEDIUM
+    if etype == "SENSOR_ALARM_UNCONFIRMED":
+        # One trip with nothing on camera is usually an animal or the wind.
+        # The same sensor tripping again and again is worth a look: someone
+        # may be working the fence just outside the camera's view.
+        return MEDIUM if (event.get("data") or {}).get("repeat_count", 1) >= 3 else LOW
     return severity_of(etype)
 
 
@@ -203,6 +222,44 @@ def describe_event(event: dict) -> str:
         timing = f", the last {secs}s earlier" if secs is not None else ""
         place = f" (last on {where})" if where else ""
         return f"Camera went offline after {alerts} on the post{timing}{place}: possible sabotage"
+    if etype == "GROUP_GATHERING":
+        people, secs = data.get("people"), num("duration_sec", "{:.0f}")
+        return f"Group of about {people} people stayed together in view" + (f" for {secs} seconds" if secs else "")
+    if etype == "TALKDOWN_ISSUED":
+        trigger = str(data.get("trigger") or "").replace("_", " ").lower()
+        why = f"automatically, after {trigger}" if data.get("auto") else f"by {data.get('by') or 'an operator'}"
+        return f"Spoken warning played at the camera's speaker ({why})"
+    if etype.startswith(("SENSOR_", "DRONE_")):
+        return _describe_sensor_event(etype, data)
+    return etype.replace("_", " ").capitalize()
+
+
+def _describe_sensor_event(etype: str, data: dict) -> str:
+    kind = data.get("sensor_label") or "Sensor"
+    name = data.get("sensor_name")
+    sensor = f"{kind} '{name}'" if name else kind
+    test = " (test trigger)" if data.get("source") == "simulated" else ""
+    camera = data.get("camera") or "the linked camera"
+    if etype == "SENSOR_TRIGGERED":
+        check = f"checking {camera}" if data.get("camera") else "no camera linked to check it"
+        return f"{sensor} triggered{test}; {check}"
+    if etype == "SENSOR_ALARM_CONFIRMED":
+        seen = []
+        for key, word in (("persons", "person"), ("vehicles", "vehicle")):
+            count = data.get(key) or 0
+            if count:
+                seen.append(f"{count} {word}{'s' if count != 1 else ''}")
+        what = " and ".join(seen) or "movement"
+        return f"{sensor} triggered{test} and {camera} saw {what}: confirmed intrusion"
+    if etype == "SENSOR_ALARM_UNVERIFIED":
+        why = data.get("why") or "the camera could not check"
+        return f"{sensor} triggered{test} but {why}: treat as real until checked"
+    if etype == "SENSOR_ALARM_UNCONFIRMED":
+        repeat = data.get("repeat_count", 1)
+        again = f", {repeat} times in {data.get('repeat_window_min', 10)} minutes" if repeat >= 2 else ""
+        return f"{sensor} triggered{test}{again}; nothing seen on {camera} (animal, wind or fault?)"
+    if etype == "DRONE_SUSPECTED":
+        return f"{sensor} heard a drone-like sound{test}; ground cameras cannot confirm a drone, look up"
     return etype.replace("_", " ").capitalize()
 
 
