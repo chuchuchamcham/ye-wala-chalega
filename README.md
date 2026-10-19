@@ -82,8 +82,23 @@ Every threshold is in `ZoneConfig` (`backend/config.py`):
 | `approach_cooldown_sec` | 20.0 | Minimum gap before the same track warns again. |
 
 ```bash
-pytest backend/tests -q      # 248 tests
+pytest backend/tests -q      # 299 tests
 ```
+
+### Measuring accuracy
+
+`scripts/evaluate.py` runs the real pipeline over labelled footage and
+reports plates read, people found, crossings caught, false alarms and speed,
+split by condition (day, night, ...). The label format is documented at the
+top of the script.
+
+```bash
+python scripts/evaluate.py                                  # demo clips
+python scripts/evaluate.py --labels eval/campus.csv --videos D:/footage
+```
+
+`eval/demo_labels.csv` only checks the demo clips, whose ANPR plate is
+overlaid. Accuracy claims need labelled real footage.
 
 ## Performance
 
