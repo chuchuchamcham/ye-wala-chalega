@@ -17,6 +17,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
+from backend.agent.incidents import event_view
 from backend.agent.models import ChatModel, ModelUnavailable, ToolResult, ToolSpec
 from backend.agent.template import template_facts, template_history, template_next_step, template_other_cameras
 from backend.agent.tools import (
@@ -67,7 +68,8 @@ Given a question about a subject in an incident, find where they were seen befor
 Answer in at most 80 words with camera names and times."""
 
 COPILOT_PROMPT = f"""You are the Copilot for Drishti, the surveillance system at an Indian border post.
-Answer the operator's question about cameras and events using your tools. Be brief and specific, with camera names and times.
+Answer the operator's question about cameras and events. You are given a summary of recent alerts; use your tools only for anything older or more detailed.
+Answer in at most three short sentences of plain language, with camera names and times. No lists, no headings, no commentary about the data or the tools.
 You cannot change anything yourself. If an action would help, call propose_action; an operator approves or rejects it.
 {DATA_RULE}"""
 
@@ -223,10 +225,38 @@ def write_brief(model: ChatModel, incident: dict, source: EventSource, manager, 
     return WrittenBrief(text="\n".join(lines), run=run, model_contributed=bool(next_step or run.proposals))
 
 
+def activity_summary(source: EventSource, minutes_back: int = 30) -> str:
+    """What happened recently, counted per camera in code.
+
+    Given to the Copilot with every question: a small local model asked
+    "what happened on CAMERA 01?" searched for the wrong event types and
+    answered "nothing" while that camera had dozens of zone alarms.
+    """
+    from collections import Counter
+
+    events = [e for e in source.recent(minutes_back, None, 1000) if (e.get("severity") or "INFO") != "INFO"]
+    if not events:
+        return f"No alerts in the last {minutes_back} minutes."
+    counts: dict[str, Counter] = {}
+    for e in events:
+        counts.setdefault(e.get("camera_name") or e.get("camera_id") or "?", Counter())[e.get("type")] += 1
+    lines = [f"- {camera}: " + ", ".join(f"{n} {t}" for t, n in c.most_common(6)) for camera, c in counts.items()]
+    latest = events[0]
+    lines.append(f"Latest: {event_view(latest).get('time')} {latest.get('type')} on {latest.get('camera_name')}"
+                 + (f" ({latest['reason']})" if latest.get("reason") else ""))
+    return f"Alerts in the last {minutes_back} minutes, by camera:\n" + "\n".join(lines)
+
+
 def run_copilot(model: ChatModel, question: str, source: EventSource, manager, max_steps: int = 8) -> AgentRun:
     collector = ProposalCollector()
     tools = [search_events_tool(source), target_sightings_tool(source), patterns_tool(source),
              list_cameras_tool(manager), propose_action_tool(collector)]
-    run = run_agent(model, "copilot", COPILOT_PROMPT, tools, question, max_steps)
+    task = f"{question}\n\nFrom the event log (use tools for anything older or more detailed):\n{activity_summary(source)}"
+    if getattr(model, "kind", "") == "local":
+        # Measured: a local model that searched again on top of the summary
+        # took three minutes to answer "what happened on CAMERA 01?". Two
+        # steps leaves room for one real lookup, for older questions.
+        max_steps = min(max_steps, 2)
+    run = run_agent(model, "copilot", COPILOT_PROMPT, tools, task, max_steps)
     run.proposals = list(collector.items)
     return run

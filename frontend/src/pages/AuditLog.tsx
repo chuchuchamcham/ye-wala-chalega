@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Loader2, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Panel } from "../components/common/Panel";
 import { auditApi, type AuditVerification } from "../api/auth";
 import { eventMeta } from "../lib/eventMeta";
@@ -49,12 +49,23 @@ export function AuditLog() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-xl font-bold text-text-primary">Audit Log</h1>
-        <p className="mt-1 text-[12.5px] text-text-tertiary">
-          The durable record of every event. Each entry is chained to the one before it, so any
-          later alteration is detectable.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-text-primary">Audit Log</h1>
+          <p className="mt-1 text-[12.5px] text-text-tertiary">
+            The durable record of every event. Each entry is chained to the one before it, so any
+            later alteration is detectable.
+          </p>
+        </div>
+        {/* A printable page; the browser's Print turns it into a PDF. */}
+        <a
+          href="/api/live/handover?hours=12"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 rounded border border-border-2 bg-bg-2 px-3 py-2 text-[12px] font-semibold text-text-secondary hover:bg-bg-3 hover:text-text-primary"
+        >
+          <FileText size={13} /> Shift handover (last 12 h)
+        </a>
       </div>
 
       {error && (

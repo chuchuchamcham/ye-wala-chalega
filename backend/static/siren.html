@@ -71,6 +71,8 @@
   .row .what { color: #cdd9e5; }
   .row .cam { color: #7c8b9a; flex: none; margin-left: auto; }
   .empty { color: #7c8b9a; font-size: 13px; }
+  .voice { display: inline-flex; gap: 8px; align-items: center; color: #7c8b9a; font-size: 13px; margin-top: 10px; }
+  .voice select { background: #0f1722; color: #cdd9e5; border: 1px solid #1e2a38; border-radius: 6px; padding: 4px 6px; font: inherit; }
 </style>
 </head>
 <body>
@@ -91,6 +93,14 @@
          silent, audio unlocked - rather than discovering it cannot during a
          real incident. -->
     <button class="link" id="testBtn">Test siren sound</button>
+    <label class="voice" for="voiceSel">Spoken alerts
+      <select id="voiceSel">
+        <option value="hi">हिंदी</option>
+        <option value="en">English</option>
+        <option value="off">Off</option>
+      </select>
+    </label>
+    <div class="meta" id="voiceNote"></div>
   </main>
 
   <section class="log">
@@ -140,6 +150,94 @@
     osc = null; gain = null;
   }
 
+  // --- spoken alerts --------------------------------------------------------
+  // A siren says something is wrong; a voice says what and where, so the
+  // guard knows which way to run without walking to a screen. Uses the
+  // device's built-in voices, so it works with no internet.
+  const SAY = {
+    hi: {
+      ZONE_ENTRY: "{cam} पर प्रतिबंधित क्षेत्र में घुसपैठ",
+      TARGET_ZONE_INTRUSION: "{cam} पर निगरानी सूची का व्यक्ति प्रतिबंधित क्षेत्र में",
+      TARGET_CONFIRMED: "{cam} पर निगरानी सूची का व्यक्ति पहचाना गया",
+      TARGET_REACQUIRED: "{cam} पर निगरानी सूची का व्यक्ति फिर दिखा",
+      TARGET_CROSS_CAMERA_MATCH: "{cam} पर निगरानी सूची का व्यक्ति दिखा",
+      TARGET_VEHICLE_FOUND: "{cam} पर संदिग्ध वाहन दिखा",
+      TARGET_VEHICLE_REACQUIRED: "{cam} पर संदिग्ध वाहन फिर दिखा",
+      TARGET_BEHAVIOR_ALERT: "{cam} पर संदिग्ध गतिविधि",
+      CAMERA_OFFLINE: "{cam} बंद हो गया",
+      CAMERA_TAMPERED: "{cam} से छेड़छाड़ की आशंका",
+      CAMERA_SABOTAGE_SUSPECTED: "{cam} बंद हुआ, तोड़फोड़ की आशंका",
+      "SIREN TEST": "सायरन परीक्षण",
+      _default: "{cam} पर अलर्ट",
+    },
+    en: {
+      ZONE_ENTRY: "Intrusion into the restricted zone at {cam}",
+      TARGET_ZONE_INTRUSION: "Watched person inside the restricted zone at {cam}",
+      TARGET_CONFIRMED: "Watched person identified at {cam}",
+      TARGET_REACQUIRED: "Watched person seen again at {cam}",
+      TARGET_CROSS_CAMERA_MATCH: "Watched person seen at {cam}",
+      TARGET_VEHICLE_FOUND: "Watched vehicle at {cam}",
+      TARGET_VEHICLE_REACQUIRED: "Watched vehicle seen again at {cam}",
+      TARGET_BEHAVIOR_ALERT: "Suspicious behaviour at {cam}",
+      CAMERA_OFFLINE: "{cam} has gone offline",
+      CAMERA_TAMPERED: "Possible tampering with {cam}",
+      CAMERA_SABOTAGE_SUSPECTED: "{cam} went offline. Possible sabotage",
+      "SIREN TEST": "Siren test",
+      _default: "Alert at {cam}",
+    },
+  };
+  const VOICE_KEY = "drishti-siren-voice";
+  let voiceLang = "hi";
+  try { voiceLang = localStorage.getItem(VOICE_KEY) || "hi"; } catch (_) { /* storage blocked */ }
+  $("voiceSel").value = voiceLang;
+  $("voiceSel").addEventListener("change", (e) => {
+    voiceLang = e.target.value;
+    try { localStorage.setItem(VOICE_KEY, voiceLang); } catch (_) { /* storage blocked */ }
+    describeVoice();
+  });
+
+  function pickVoice(lang) {
+    if (!("speechSynthesis" in window)) return null;
+    const voices = speechSynthesis.getVoices();
+    return voices.find((v) => v.lang && v.lang.toLowerCase().startsWith(lang)) || null;
+  }
+
+  // Which language will actually be heard. A device without a Hindi voice
+  // would otherwise read Hindi text badly or not at all, so it says English.
+  function spokenLang() {
+    if (voiceLang === "off" || !("speechSynthesis" in window)) return null;
+    if (voiceLang === "hi" && !pickVoice("hi")) return "en";
+    return voiceLang;
+  }
+
+  function describeVoice() {
+    if (!("speechSynthesis" in window)) { $("voiceNote").textContent = "This browser cannot speak alerts."; return; }
+    if (voiceLang === "hi" && !pickVoice("hi")) {
+      $("voiceNote").textContent = "No Hindi voice on this device, so alerts are spoken in English. Add Hindi in the phone's text-to-speech settings.";
+    } else {
+      $("voiceNote").textContent = "";
+    }
+  }
+  if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = describeVoice;
+  describeVoice();
+
+  function announce(ev) {
+    const lang = spokenLang();
+    if (!lang) return;
+    const phrases = SAY[lang];
+    const text = (phrases[ev.type] || phrases._default).replace("{cam}", ev.camera_name || "");
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = lang === "hi" ? "hi-IN" : "en-IN";
+    const voice = pickVoice(lang);
+    if (voice) utter.voice = voice;
+    utter.rate = 0.95;
+    // Dip the siren while the words are spoken, then bring it back.
+    utter.onstart = () => { if (gain && audio) gain.gain.setTargetAtTime(0.12, audio.currentTime, 0.05); };
+    utter.onend = () => { if (gain && audio) gain.gain.setTargetAtTime(0.9, audio.currentTime, 0.1); };
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utter);
+  }
+
   // --- alarm state ----------------------------------------------------------
   function raiseAlarm(ev) {
     document.body.classList.add("alarm");
@@ -153,6 +251,8 @@
 
     startTone();
     if (navigator.vibrate) navigator.vibrate([400, 180, 400, 180, 700]);
+    // Let the siren be heard first, then say what happened.
+    setTimeout(() => announce(ev), 1500);
     clearTimeout(alarmTimer);
     alarmTimer = setTimeout(clearAlarm, ALARM_SECONDS * 1000);
   }
@@ -160,6 +260,7 @@
   function clearAlarm() {
     clearTimeout(alarmTimer);
     stopTone();
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
     document.body.classList.remove("alarm");
     $("badgeWrap").innerHTML = "";
     $("armBtn").textContent = "Disarm";
@@ -179,6 +280,9 @@
     // The tap that armed us is what unlocks audio; resume() must happen inside
     // that gesture or every later sound is silently blocked.
     if (audio.state === "suspended") await audio.resume();
+    // Speech is also unlocked by a tap on some phones; an empty utterance
+    // inside the arming tap does that without making a sound.
+    if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
     armed = true;
     $("armBtn").textContent = "Disarm";
     $("armBtn").className = "silence";

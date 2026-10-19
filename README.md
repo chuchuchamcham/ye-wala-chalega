@@ -92,7 +92,7 @@ Every threshold is in `ZoneConfig` (`backend/config.py`):
 | `approach_cooldown_sec` | 20.0 | Minimum gap before the same track warns again. |
 
 ```bash
-pytest backend/tests -q      # 382 tests
+pytest backend/tests -q      # 390 tests
 ```
 
 ### AI Analyst
@@ -117,6 +117,29 @@ Model names on free tiers change often: pick a current one from the
 provider's model list (OpenRouter defaults to its `openrouter/free` router).
 `DRISHTI_AGENT_MODEL` and `DRISHTI_LOCAL_MODEL` choose other Claude and local
 models. Whatever is or isn't set up, alarms work exactly the same.
+
+### Before a demo or a shift
+
+```bash
+python scripts/preflight.py          # every dependency, model, port and the log's integrity
+python scripts/network_check.py      # with Drishti running: every connection it makes
+```
+
+`preflight.py` prints a tick or a cross per check, with the fix for each
+cross; run it the day before and again at the venue with the network cable
+out. `network_check.py` watches the running server for a minute and sorts
+every remote address into this machine, the local network and the internet.
+With cloud AI off, the internet line is empty: Drishti also turns off the
+usage statistics the YOLO library would otherwise send (`YOLO_OFFLINE`).
+
+**Audit Log → Shift handover** opens a one-page report of the last 12 hours:
+alarms, cameras, AI briefs, decisions, repeats and the log's integrity check.
+Print it, or save it as PDF from the browser's print dialog.
+
+The **siren page** speaks each alarm after the siren sounds, in Hindi or
+English ("CAMERA 01 पर प्रतिबंधित क्षेत्र में घुसपैठ"), using the phone's
+own voices, so it works offline. If the phone has no Hindi voice it says so
+and speaks English; add Hindi under the phone's text-to-speech settings.
 
 ### Measuring accuracy
 

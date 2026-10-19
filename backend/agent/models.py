@@ -221,7 +221,10 @@ class OllamaConversation:
         return self._call()
 
     def _call(self) -> Turn:
-        payload = {"model": self._model.name, "messages": self._messages, "stream": False}
+        # A cap on reply length: on a laptop CPU every token costs time, and a
+        # brief or an answer never needs more than a few sentences.
+        payload = {"model": self._model.name, "messages": self._messages, "stream": False,
+                   "options": {"num_predict": 400}}
         if self._tools:
             payload["tools"] = self._tools
         try:

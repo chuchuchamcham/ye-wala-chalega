@@ -280,6 +280,31 @@ def test_local_models_run_lean_without_pursuit():
     assert all(step["error"] for step in written.run.steps)  # ask_pursuit is not offered in lean mode
 
 
+def test_event_search_accepts_camera_names_as_well_as_ids():
+    from backend.agent.tools import search_events_tool
+
+    entry = {**event("ZONE_ENTRY", "CRITICAL", 990.0), "camera_name": "CAMERA 01"}
+    store = FakeStore([entry, event("ZONE_ENTRY", "CRITICAL", 995.0, camera="cam-02")])
+    tool = search_events_tool(EventSource(store=store, clock=lambda: 1000.0))
+
+    def count(camera):
+        return tool.handler({"camera_id": camera, "event_types": None, "minutes_back": 10, "limit": 10})["count"]
+
+    assert count("camera 01") == count("cam-01") == 1
+    assert count(None) == 2
+
+
+def test_copilot_gets_a_counted_summary_with_every_question():
+    from backend.agent.agents import run_copilot
+
+    entry = {**event("ZONE_ENTRY", "CRITICAL", 990.0), "camera_name": "CAMERA 01"}
+    store = FakeStore([entry, {**entry, "wall_time": 995.0}, event("VEHICLE_DETECTED", "INFO", 996.0)])
+    model = ScriptedModel("local", [answer("Two zone entries on CAMERA 01.", model="local")])
+    run_copilot(model, "What happened on CAMERA 01?", EventSource(store=store, clock=lambda: 1000.0), manager=None)
+    task = model.sent[0][1]
+    assert "- CAMERA 01: 2 ZONE_ENTRY" in task and "VEHICLE_DETECTED" not in task
+
+
 def test_parse_judgment_ignores_other_lines():
     from backend.agent.agents import parse_judgment
 

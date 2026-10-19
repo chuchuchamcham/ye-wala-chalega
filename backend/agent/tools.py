@@ -89,10 +89,15 @@ def other_camera_activity(source: EventSource, incident: dict, minutes_back: int
 def search_events_tool(source: EventSource) -> ToolSpec:
     def handler(args: dict) -> dict:
         minutes = _int(args.get("minutes_back"), 30, 1, 24 * 60)
-        limit = _int(args.get("limit"), 40, 1, 100)
-        camera_id = args.get("camera_id") or None
+        limit = _int(args.get("limit"), 20, 1, 25)
+        camera = str(args.get("camera_id") or "").strip().lower()
         types = args.get("event_types") or None
-        events = source.recent(minutes, camera_id, 1000)
+        events = source.recent(minutes, None, 1000)
+        if camera:
+            # Models (and operators) name cameras the way the dashboard shows
+            # them, "CAMERA 01", as often as by id, "cam-01"; accept either.
+            events = [e for e in events if camera in (str(e.get("camera_id") or "").lower(),
+                                                       str(e.get("camera_name") or "").lower())]
         if types:
             wanted = {str(t).upper() for t in types}
             events = [e for e in events if e.get("type") in wanted]
@@ -108,10 +113,10 @@ def search_events_tool(source: EventSource) -> ToolSpec:
         input_schema={
             "type": "object",
             "properties": {
-                "camera_id": _nullable({"type": "string", "description": "Only this camera; null for all cameras."}),
+                "camera_id": _nullable({"type": "string", "description": "Only this camera, by id or by name; null for all cameras."}),
                 "event_types": _nullable({"type": "array", "items": {"type": "string"}, "description": "Only these event types; null for all."}),
                 "minutes_back": {"type": "integer", "description": "How far back to look, 1-1440 minutes."},
-                "limit": {"type": "integer", "description": "Most events to return, 1-100."},
+                "limit": {"type": "integer", "description": "Most events to return, 1-25."},
             },
             "required": ["camera_id", "event_types", "minutes_back", "limit"],
             "additionalProperties": False,
