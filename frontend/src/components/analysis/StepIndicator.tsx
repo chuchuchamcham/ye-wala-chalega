@@ -14,7 +14,7 @@ export function StepIndicator({ current }: { current: number }) {
               <span
                 className={`flex h-6 w-6 items-center justify-center rounded-full border text-[11px] ${
                   state === "active"
-                    ? "border-accent-blue bg-accent-blue text-[#051020]"
+                    ? "border-accent-blue bg-accent-blue text-on-accent"
                     : state === "done"
                       ? "border-accent-green bg-accent-green/12 text-accent-green"
                       : "border-border-2 bg-bg-3 text-text-secondary"

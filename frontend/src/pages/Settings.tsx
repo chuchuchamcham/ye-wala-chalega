@@ -36,7 +36,7 @@ export function Settings() {
               key={t}
               onClick={() => setTab(t)}
               className={`rounded px-4 py-1.5 text-[12px] font-semibold capitalize transition-colors ${
-                tab === t ? "bg-accent-blue text-[#051020]" : "text-text-secondary hover:text-text-primary"
+                tab === t ? "bg-accent-blue text-on-accent" : "text-text-secondary hover:text-text-primary"
               }`}
             >
               {t}

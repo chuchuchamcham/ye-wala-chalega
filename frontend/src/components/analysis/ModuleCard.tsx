@@ -35,7 +35,7 @@ export function ModuleCard({
       >
         <span
           className={`absolute top-[2px] h-[16px] w-[16px] rounded-full transition-transform ${
-            selected ? "translate-x-[16px] bg-[#06101f]" : "translate-x-[2px] bg-text-tertiary"
+            selected ? "translate-x-[16px] bg-on-accent" : "translate-x-[2px] bg-text-tertiary"
           }`}
         />
       </span>

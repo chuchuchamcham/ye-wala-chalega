@@ -1,42 +1,54 @@
 @import "tailwindcss";
 
-/* Drishti design tokens - dark, tactical, restrained.
-   Color is semantic: red=threat/target, amber=warning, green=healthy,
-   blue=information/active, white=primary text. No neon, no decorative gradients. */
+/* Drishti design tokens - teal operations-center theme.
+   Near-black surfaces with a teal cast, one teal accent for "active/primary",
+   and colour otherwise reserved for meaning: red=threat/target, amber=warning,
+   green=healthy. The "accent-blue" name is kept so every page picks up the
+   teal accent without touching call sites. */
 @theme {
-  --font-sans: -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "SF Mono", "Cascadia Code", Consolas, "Roboto Mono", monospace;
+  --font-sans: Inter, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
 
-  --color-bg-0: #05070a;
-  --color-bg-1: #0a0e14;
-  --color-bg-2: #0e131b;
-  --color-bg-3: #131a24;
-  --color-bg-4: #1a2230;
-  --color-border-1: #1f2733;
-  --color-border-2: #2a3441;
-  --color-border-strong: #3a4757;
+  --color-bg-0: #030707;
+  --color-bg-1: #050b0b;
+  --color-bg-2: #091212;
+  --color-bg-3: #0e1a1a;
+  --color-bg-4: #142424;
+  --color-border-1: #142826;
+  --color-border-2: #1c3633;
+  --color-border-strong: #2a4d48;
 
-  --color-text-primary: #eef2f7;
-  --color-text-secondary: #9fadbf;
-  --color-text-tertiary: #667486;
-  --color-text-disabled: #4a5563;
+  --color-text-primary: #e8f3f1;
+  --color-text-secondary: #94aca8;
+  --color-text-tertiary: #5f7773;
+  --color-text-disabled: #3f524f;
 
-  --color-accent-blue: #3b9eff;
-  --color-accent-cyan: #34d6d6;
-  --color-accent-red: #ef4444;
-  --color-accent-amber: #f5a623;
-  --color-accent-green: #2ecc71;
-  --color-accent-magenta: #c04dcc;
-  --color-accent-orange: #ff8c1a;
+  --color-accent-blue: #2dd4bf;
+  --color-accent-cyan: #5eead4;
+  --color-accent-red: #f2545b;
+  --color-accent-amber: #f5b041;
+  --color-accent-green: #34d399;
+  --color-accent-magenta: #c084fc;
+  --color-accent-orange: #fb923c;
+
+  --color-accent-hover: #5eead4;
+  --color-on-accent: #032421;
 }
 
 html, body, #root { height: 100%; }
 body {
-  background: var(--color-bg-1);
+  background:
+    radial-gradient(1200px 600px at 60% -10%, rgba(45, 212, 191, 0.07), transparent 60%),
+    radial-gradient(800px 500px at 0% 100%, rgba(45, 212, 191, 0.035), transparent 60%),
+    var(--color-bg-1);
+  background-attachment: fixed;
   color: var(--color-text-primary);
   font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
 }
+
+::selection { background: rgba(45, 212, 191, 0.3); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -44,6 +56,14 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); background-clip: padding-box; }
 
 .tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* Glass panel: a faint top-lit gradient and a 1px inner highlight, so cards
+   read as layered instances rather than flat boxes. */
+.surface {
+  background: linear-gradient(180deg, rgba(20, 40, 38, 0.55) 0%, rgba(9, 18, 18, 0.85) 100%);
+  box-shadow: inset 0 1px 0 rgba(94, 234, 212, 0.06), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+}
 
 @keyframes bw-shimmer {
   0% { background-position: -200px 0; }

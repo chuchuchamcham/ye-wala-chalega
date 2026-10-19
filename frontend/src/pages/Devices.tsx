@@ -228,7 +228,7 @@ export function Devices() {
             <button
               onClick={() => void createPhoneCamera()}
               disabled={busy || !info?.on_network}
-              className="mt-auto flex items-center justify-center gap-2 rounded bg-accent-blue px-4 py-2.5 text-[12.5px] font-semibold text-[#051020] disabled:opacity-40"
+              className="mt-auto flex items-center justify-center gap-2 rounded bg-accent-blue px-4 py-2.5 text-[12.5px] font-semibold text-on-accent disabled:opacity-40"
             >
               <Camera size={14} /> {busy ? "Creating…" : "Create phone camera"}
             </button>

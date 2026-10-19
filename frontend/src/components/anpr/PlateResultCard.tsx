@@ -45,7 +45,7 @@ export function PlateResultCard({
           </button>
         )}
         {onJumpToVideo && (
-          <button onClick={onJumpToVideo} className="inline-flex items-center gap-1.5 rounded bg-accent-blue px-3 py-1.5 text-[11.5px] font-semibold text-[#051020] hover:bg-[#59aeff]">
+          <button onClick={onJumpToVideo} className="inline-flex items-center gap-1.5 rounded bg-accent-blue px-3 py-1.5 text-[11.5px] font-semibold text-on-accent hover:bg-accent-hover">
             <PlayCircle size={13} /> Jump to Video
           </button>
         )}

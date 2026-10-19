@@ -85,7 +85,7 @@ export function AddCameraForm({ onAdded }: { onAdded: (camera?: LiveCamera) => v
             key={p.key}
             onClick={() => setPreset(p.key)}
             className={`flex-1 rounded px-2 py-1.5 text-[11.5px] font-semibold transition-colors ${
-              preset === p.key ? "bg-accent-blue text-[#051020]" : "text-text-secondary hover:text-text-primary"
+              preset === p.key ? "bg-accent-blue text-on-accent" : "text-text-secondary hover:text-text-primary"
             }`}
           >
             {p.label}
@@ -134,7 +134,7 @@ export function AddCameraForm({ onAdded }: { onAdded: (camera?: LiveCamera) => v
       <button
         onClick={() => void submit()}
         disabled={busy || !name.trim() || !source.trim()}
-        className="flex items-center justify-center gap-2 rounded bg-accent-blue px-4 py-2.5 text-[12.5px] font-semibold text-[#051020] disabled:opacity-40"
+        className="flex items-center justify-center gap-2 rounded bg-accent-blue px-4 py-2.5 text-[12.5px] font-semibold text-on-accent disabled:opacity-40"
       >
         {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
         {busy ? "Connecting…" : "Add camera"}

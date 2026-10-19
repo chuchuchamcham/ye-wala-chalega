@@ -16,10 +16,10 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <div className={`rounded-[10px] border border-border-1 bg-bg-2 ${className}`}>
+    <div className={`surface rounded-xl border border-border-1 ${className}`}>
       {title && (
-        <div className="flex items-center justify-between border-b border-border-1 px-5 py-4">
-          <h2 className="text-[13.5px] font-semibold tracking-wide text-text-primary">{title}</h2>
+        <div className="flex items-center justify-between border-b border-border-1/80 px-5 py-3.5">
+          <h2 className="flex items-center gap-2 text-[13px] font-semibold text-text-primary"><span className="h-3 w-[3px] rounded-full bg-accent-blue/80" />{title}</h2>
           <div className="flex items-center gap-2">
             {meta && <span className="text-[11px] text-text-tertiary">{meta}</span>}
             {actions}

@@ -262,7 +262,7 @@ function Copilot({
           <button
             type="submit"
             disabled={!enabled || !canAsk || asking || !question.trim()}
-            className="inline-flex items-center gap-1.5 rounded bg-accent-blue px-4 py-2 text-[12.5px] font-bold text-[#051020] hover:bg-[#59aeff] disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded bg-accent-blue px-4 py-2 text-[12.5px] font-bold text-on-accent hover:bg-accent-hover disabled:opacity-40"
           >
             {asking ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Ask
           </button>

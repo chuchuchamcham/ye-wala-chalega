@@ -26,7 +26,7 @@ export function Jobs() {
 
   return (
     <>
-      <PageHeader title="Jobs" subtitle="Analysis job history" actions={<button onClick={() => navigate("/analysis")} className="rounded bg-accent-blue px-4 py-2 text-[12.5px] font-bold text-[#051020] hover:bg-[#59aeff]">NEW ANALYSIS</button>} />
+      <PageHeader title="Jobs" subtitle="Analysis job history" actions={<button onClick={() => navigate("/analysis")} className="rounded bg-accent-blue px-4 py-2 text-[12.5px] font-bold text-on-accent hover:bg-accent-hover">NEW ANALYSIS</button>} />
       <PageBody>
         <Panel>
           {status === "loading" && <LoadingBlock label="Loading jobs…" />}

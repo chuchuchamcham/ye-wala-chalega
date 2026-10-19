@@ -25,12 +25,12 @@ export function MetricCard({
 }) {
   const isEmpty = value === "" || value == null;
   return (
-    <div className="rounded-[10px] border border-border-1 bg-bg-2 px-5 py-4">
-      <div className="flex items-center gap-1.5 text-[10.5px] font-semibold tracking-wider text-text-tertiary">
-        {Icon && <Icon size={12} />}
+    <div className="surface relative overflow-hidden rounded-xl border border-border-1 px-5 py-4">
+      <div className="flex items-center gap-1.5 text-[11.5px] font-medium text-text-secondary">
+        {Icon && <Icon size={13} className="text-accent-blue/80" />}
         {label}
       </div>
-      <div className={`mt-2 tabular-nums text-[32px] font-bold leading-none tracking-tight ${isEmpty ? "text-text-disabled" : accentClass[accent]}`}>
+      <div className={`mt-2 tabular-nums text-[30px] font-semibold leading-none tracking-tight ${isEmpty ? "text-text-disabled" : accentClass[accent]}`}>
         {isEmpty ? "—" : value}
       </div>
       {sub && <div className="mt-1 text-[11px] text-text-tertiary">{sub}</div>}

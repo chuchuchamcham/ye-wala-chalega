@@ -96,7 +96,7 @@ export function ZoneDrawer({
                 resetDrawing();
               }}
               className={`rounded px-3 py-1.5 text-[11.5px] font-semibold capitalize transition-colors ${
-                shape === s ? "bg-accent-blue text-[#051020]" : "text-text-secondary hover:text-text-primary"
+                shape === s ? "bg-accent-blue text-on-accent" : "text-text-secondary hover:text-text-primary"
               }`}
             >
               {s}
@@ -165,7 +165,7 @@ export function ZoneDrawer({
         <button
           onClick={saveZone}
           disabled={!(shape === "rectangle" ? rectReady : canClose) || saving}
-          className="rounded bg-accent-blue px-3 py-2 text-[12px] font-semibold text-[#051020] disabled:opacity-40"
+          className="rounded bg-accent-blue px-3 py-2 text-[12px] font-semibold text-on-accent disabled:opacity-40"
         >
           {saving ? "Saving…" : shape === "polygon" ? "Close & Save Zone" : "Save Zone"}
         </button>

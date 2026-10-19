@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { Eye, Loader2, ShieldCheck } from "lucide-react";
 import { ApiError } from "../api/client";
 import { authApi, type SessionState } from "../api/auth";
 
@@ -44,17 +44,17 @@ export function Login({ session, onSignedIn }: { session: SessionState; onSigned
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg-0 px-4">
+    <div className="flex min-h-screen items-center justify-center px-4">
       <form onSubmit={submit} className="w-full max-w-sm">
-        <div className="mb-6 text-center">
-          <div className="mb-2 flex items-center justify-center gap-2 text-lg font-bold tracking-wide text-text-primary">
-            <span className="h-2 w-2 rounded-full bg-accent-blue shadow-[0_0_8px_var(--color-accent-blue)]" />
-            DRISHTI
+        <div className="mb-7 flex flex-col items-center text-center">
+          <div className="mb-3 grid h-12 w-12 place-items-center rounded-xl border border-accent-blue/30 bg-accent-blue/10 shadow-[0_0_28px_-6px_var(--color-accent-blue)]">
+            <Eye size={22} strokeWidth={1.75} className="text-accent-blue" />
           </div>
-          <div className="text-[11px] tracking-[1.5px] text-text-tertiary">AI VIDEO INTELLIGENCE</div>
+          <div className="text-lg font-semibold tracking-[0.1em] text-text-primary">DRISHTI</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">Video intelligence</div>
         </div>
 
-        <div className="rounded-lg border border-border-1 bg-bg-2 p-5">
+        <div className="surface rounded-xl border border-border-1 p-6">
           <h1 className="mb-1 text-[15px] font-bold text-text-primary">
             {firstRun ? "Create administrator" : "Sign in"}
           </h1>
@@ -112,7 +112,7 @@ export function Login({ session, onSignedIn }: { session: SessionState; onSigned
           <button
             type="submit"
             disabled={!canSubmit || busy}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded bg-accent-blue py-2.5 text-[13px] font-semibold text-[#051020] disabled:opacity-40"
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded bg-accent-blue py-2.5 text-[13px] font-semibold text-on-accent disabled:opacity-40"
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
             {firstRun ? "Create administrator" : "Sign in"}

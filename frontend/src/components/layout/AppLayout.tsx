@@ -31,12 +31,12 @@ export function SessionFooter({
   return (
     <div className="mx-5 mt-4 border-t border-border-1 pt-4">
       <div className="truncate text-[12px] font-semibold text-text-primary">{user.username}</div>
-      <div className="mb-2 text-[10.5px] tracking-wide text-text-tertiary">{user.role}</div>
+      <div className="mb-2 text-[11px] capitalize text-text-tertiary">{user.role}</div>
       <button
         onClick={() => {
           void authApi.logout().finally(() => onSignedOut?.());
         }}
-        className="w-full rounded border border-border-2 py-1.5 text-[11.5px] text-text-secondary hover:bg-bg-3 hover:text-text-primary"
+        className="w-full rounded-lg border border-border-2 py-1.5 text-[12px] text-text-secondary hover:bg-bg-3 hover:text-text-primary"
       >
         Sign out
       </button>
@@ -54,10 +54,10 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-10 flex h-[60px] shrink-0 items-center justify-between border-b border-border-1 bg-bg-1 px-6">
+    <header className="sticky top-0 z-10 flex h-[60px] shrink-0 items-center justify-between border-b border-border-1 bg-bg-1/70 px-6 backdrop-blur-md">
       <div className="flex flex-col gap-0.5">
-        <h1 className="text-[15px] font-semibold text-text-primary">{title}</h1>
-        {subtitle && <p className="text-[11px] text-text-tertiary">{subtitle}</p>}
+        <h1 className="text-[16px] font-semibold tracking-tight text-text-primary">{title}</h1>
+        {subtitle && <p className="text-[11.5px] text-text-tertiary">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </header>

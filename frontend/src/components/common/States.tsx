@@ -52,7 +52,7 @@ export function SkeletonRow({ className = "" }: { className?: string }) {
 
 export function SkeletonCard() {
   return (
-    <div className="rounded-[10px] border border-border-1 bg-bg-2 px-5 py-4">
+    <div className="surface rounded-xl border border-border-1 px-5 py-4">
       <SkeletonRow className="mb-3 w-1/2" />
       <SkeletonRow className="h-8 w-1/3" />
     </div>

@@ -139,7 +139,7 @@ export function CameraSetupPanel({
             >
               <span
                 className={`mt-[2px] flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${
-                  modules[key] ? "border-accent-blue bg-accent-blue text-[#051020]" : "border-border-2"
+                  modules[key] ? "border-accent-blue bg-accent-blue text-on-accent" : "border-border-2"
                 }`}
               >
                 {modules[key] && <Check size={11} strokeWidth={3} />}
@@ -215,7 +215,7 @@ export function CameraSetupPanel({
         <button
           onClick={() => void apply()}
           disabled={!!blockedReason || applying}
-          className="flex items-center gap-2 rounded bg-accent-blue px-4 py-2.5 text-[12.5px] font-semibold text-[#051020] disabled:opacity-40"
+          className="flex items-center gap-2 rounded bg-accent-blue px-4 py-2.5 text-[12.5px] font-semibold text-on-accent disabled:opacity-40"
         >
           {applying ? <Loader2 size={14} className="animate-spin" /> : <Settings2 size={14} />}
           {applying ? "Restarting camera…" : "Apply to camera"}

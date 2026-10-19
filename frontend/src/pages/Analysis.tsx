@@ -274,9 +274,9 @@ export function Analysis() {
             <button
               onClick={handleStart}
               disabled={submitting || selectedCount === 0}
-              className="w-full rounded-md bg-accent-blue py-3 text-[13.5px] font-bold tracking-wide text-[#051020] transition-colors hover:bg-[#59aeff] disabled:opacity-40"
+              className="w-full rounded-md bg-accent-blue py-3 text-[13.5px] font-bold tracking-wide text-on-accent transition-colors hover:bg-accent-hover disabled:opacity-40"
             >
-              {submitting ? "STARTING…" : "START ANALYSIS"}
+              {submitting ? "Starting…" : "Start analysis"}
             </button>
           </Panel>
         )}
@@ -293,7 +293,7 @@ export function Analysis() {
             <button
               disabled={(step === 1 && !canGoStep2) || (step === 2 && !canGoStep3) || (step === 3 && !canGoStep4)}
               onClick={() => setStep((s) => Math.min(4, s + 1))}
-              className="rounded bg-accent-blue px-5 py-2 text-[12.5px] font-bold text-[#051020] hover:bg-[#59aeff] disabled:opacity-40"
+              className="rounded bg-accent-blue px-5 py-2 text-[12.5px] font-bold text-on-accent hover:bg-accent-hover disabled:opacity-40"
             >
               Continue
             </button>

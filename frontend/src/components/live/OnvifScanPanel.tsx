@@ -169,7 +169,7 @@ export function OnvifScanPanel({ onAdded }: { onAdded: (camera?: LiveCamera) => 
           <button
             onClick={() => void add()}
             disabled={busy || !profile || !name.trim()}
-            className="flex items-center justify-center gap-2 rounded bg-accent-blue px-4 py-2.5 text-[12.5px] font-semibold text-[#051020] disabled:opacity-40"
+            className="flex items-center justify-center gap-2 rounded bg-accent-blue px-4 py-2.5 text-[12.5px] font-semibold text-on-accent disabled:opacity-40"
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Add this camera
           </button>

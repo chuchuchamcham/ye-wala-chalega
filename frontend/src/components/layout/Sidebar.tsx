@@ -59,14 +59,14 @@ function NavGroup({ links }: { links: typeof primaryLinks }) {
           to={to}
           end={end}
           className={({ isActive }) =>
-            `flex items-center gap-3 rounded px-3 py-[9px] text-[13.5px] border-l-2 transition-colors ${
+            `group relative flex items-center gap-3 rounded-lg px-3 py-[8px] text-[13px] transition-colors ${
               isActive
-                ? "bg-accent-blue/10 text-text-primary border-accent-blue"
-                : "text-text-secondary border-transparent hover:bg-bg-3 hover:text-text-primary"
+                ? "bg-accent-blue/[0.09] text-text-primary shadow-[inset_0_0_0_1px_rgba(45,212,191,0.18)] before:absolute before:-left-3 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r before:bg-accent-blue before:shadow-[0_0_10px_var(--color-accent-blue)] [&>svg]:text-accent-blue"
+                : "text-text-secondary hover:bg-bg-3/70 hover:text-text-primary"
             }`
           }
         >
-          <Icon size={16} className="shrink-0 opacity-85" />
+          <Icon size={16} strokeWidth={1.75} className="shrink-0" />
           <span className="truncate">{label}</span>
         </NavLink>
       ))}
@@ -76,23 +76,23 @@ function NavGroup({ links }: { links: typeof primaryLinks }) {
 
 export function Sidebar({ user, onSignedOut }: { user?: SessionUser | null; onSignedOut?: () => void }) {
   return (
-    <aside className="sticky top-0 h-screen w-[248px] shrink-0 overflow-y-auto border-r border-border-1 bg-bg-0 py-5 max-[1366px]:w-[220px]">
-      <div className="mb-4 border-b border-border-1 px-5 pb-5">
-        <div className="flex items-center gap-2 text-lg font-bold tracking-wide text-text-primary">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-accent-blue shadow-[0_0_8px_var(--color-accent-blue)]" />
-          DRISHTI
+    <aside className="sticky top-0 h-screen w-[248px] shrink-0 overflow-y-auto border-r border-border-1 bg-bg-0/80 py-5 backdrop-blur max-[1366px]:w-[220px]">
+      <div className="mb-5 flex items-center gap-3 px-5">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-accent-blue/30 bg-accent-blue/10 shadow-[0_0_18px_-4px_var(--color-accent-blue)]">
+          <Eye size={18} strokeWidth={1.75} className="text-accent-blue" />
         </div>
-        <div className="mt-1 pl-4 text-[11px] tracking-[1.5px] text-text-tertiary">AI VIDEO INTELLIGENCE</div>
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold tracking-[0.08em] text-text-primary">DRISHTI</div>
+          <div className="truncate text-[11px] text-text-tertiary">Video intelligence</div>
+        </div>
       </div>
 
       <NavGroup links={primaryLinks} />
 
-      <div className="px-5 pb-1 pt-4 text-[10px] font-semibold tracking-[1.2px] text-text-disabled">
-        ANALYSIS MODULES
-      </div>
+      <div className="px-6 pb-1.5 pt-5 text-[10.5px] font-medium uppercase tracking-[0.12em] text-text-tertiary">Analysis modules</div>
       <NavGroup links={moduleLinks} />
 
-      <div className="px-5 pb-1 pt-4 text-[10px] font-semibold tracking-[1.2px] text-text-disabled">SYSTEM</div>
+      <div className="px-6 pb-1.5 pt-5 text-[10.5px] font-medium uppercase tracking-[0.12em] text-text-tertiary">System</div>
       <NavGroup links={systemLinks} />
 
       <div className="px-3 pt-1">
@@ -100,16 +100,19 @@ export function Sidebar({ user, onSignedOut }: { user?: SessionUser | null; onSi
           href={SIREN_URL}
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-3 rounded border-l-2 border-transparent px-3 py-[9px] text-[13.5px] text-text-secondary hover:bg-bg-3 hover:text-text-primary"
+          className="flex items-center gap-3 rounded-lg px-3 py-[8px] text-[13px] text-text-secondary hover:bg-bg-3/70 hover:text-text-primary"
         >
-          <Siren size={16} className="shrink-0 opacity-85" />
+          <Siren size={16} strokeWidth={1.75} className="shrink-0" />
           <span className="truncate">Siren Panel</span>
         </a>
       </div>
 
-      <div className="mx-5 mt-4 flex items-center gap-2 border-t border-border-1 pt-4 text-[11px] tracking-wide text-text-tertiary">
-        <span className="h-[6px] w-[6px] rounded-full bg-accent-green" />
-        SYSTEM ONLINE
+      <div className="mx-5 mt-5 flex items-center gap-2 rounded-lg border border-border-1 bg-bg-2/60 px-3 py-2 text-[11.5px] text-text-secondary">
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-green opacity-50" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-green" />
+        </span>
+        System online
       </div>
 
       <SessionFooter user={user} onSignedOut={onSignedOut} />

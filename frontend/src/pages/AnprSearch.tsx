@@ -78,7 +78,7 @@ export function AnprSearch() {
                 <button
                   onClick={handleSearch}
                   disabled={!plate.trim() || starting || searching}
-                  className="inline-flex items-center gap-2 rounded bg-accent-blue px-6 py-3 text-[13px] font-bold text-[#051020] hover:bg-[#59aeff] disabled:opacity-40"
+                  className="inline-flex items-center gap-2 rounded bg-accent-blue px-6 py-3 text-[13px] font-bold text-on-accent hover:bg-accent-hover disabled:opacity-40"
                 >
                   <Search size={15} /> {starting || searching ? "SEARCHING…" : "SEARCH"}
                 </button>
