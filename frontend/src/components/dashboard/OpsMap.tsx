@@ -1,4 +1,5 @@
 import { Map as MapIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { LiveCamera, LiveEvent } from "../../api/live";
 import { mapApi, type SiteMap } from "../../api/map";
@@ -42,16 +43,29 @@ export function OpsMap({ map, cameras, events, now }: { map: SiteMap | null; cam
   ];
   const reporting = cameras.filter((c) => c.state === "online").length;
 
+  // Fit the whole plan inside the panel (letterboxed, never cropped) so a
+  // marker lands exactly where it was placed on the Site Map page.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<[number, number]>([0, 0]);
+  const [ratio, setRatio] = useState<number | null>(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBox([el.clientWidth, el.clientHeight]));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const hasImage = !!map?.has_image;
+  let stage = { left: 0, top: 0, width: box[0], height: box[1] };
+  if (hasImage && ratio && box[0] && box[1]) {
+    const width = Math.min(box[0], box[1] * ratio);
+    const height = width / ratio;
+    stage = { left: (box[0] - width) / 2, top: (box[1] - height) / 2, width, height };
+  }
+
   return (
-    <div className="relative h-full min-h-[380px] overflow-hidden rounded-xl border border-border-1 bg-[#141a19]">
-      {map?.has_image ? (
-        <img
-          src={mapApi.imageUrl(map.image_version)}
-          alt="Site plan"
-          className="absolute inset-0 h-full w-full object-cover opacity-55 saturate-[.6]"
-          draggable={false}
-        />
-      ) : (
+    <div ref={boxRef} className="relative h-full min-h-[380px] overflow-hidden rounded-xl border border-border-1 bg-[#0f1011]">
+      {!hasImage && (
         <div
           className="absolute inset-0"
           style={{
@@ -91,6 +105,16 @@ export function OpsMap({ map, cameras, events, now }: { map: SiteMap | null; cam
         <MapIcon size={13} /> {map?.has_image ? "Edit map" : "Upload site plan"}
       </Link>
 
+      <div className="absolute" style={stage}>
+        {hasImage && map && (
+          <img
+            src={mapApi.imageUrl(map.image_version)}
+            alt="Site plan"
+            onLoad={(e) => setRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
+            className="absolute inset-0 h-full w-full"
+            draggable={false}
+          />
+        )}
       {markers.map(({ name, at: [x, y] }) => {
         const camera = byName.get(name);
         const t = tone(camera, alarmed.has(name));
@@ -109,6 +133,7 @@ export function OpsMap({ map, cameras, events, now }: { map: SiteMap | null; cam
           </div>
         );
       })}
+      </div>
 
       {markers.length === 0 && (
         <div className="absolute inset-0 grid place-items-center text-[12.5px] text-text-tertiary">
