@@ -11,7 +11,7 @@ export function SitePicker({ sites, value, onChange }: { sites: SiteSummary[]; v
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label="Site"
-        className="appearance-none rounded-lg border border-border-2 bg-bg-1/85 py-1.5 pl-8 pr-7 text-[12px] text-text-primary backdrop-blur hover:border-border-strong focus:outline-none"
+        className="max-w-[220px] appearance-none truncate rounded-lg border border-border-2 bg-bg-1/85 py-1.5 pl-8 pr-7 text-[12px] text-text-primary backdrop-blur hover:border-border-strong focus:outline-none"
       >
         {sites.map((s) => (
           <option key={s.id} value={s.id}>

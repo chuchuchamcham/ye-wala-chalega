@@ -85,36 +85,40 @@ export function OpsMap({
         />
       )}
 
-      <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
-        <span className="text-[14px] font-semibold text-text-primary">Live site map</span>
-        <span className="flex items-center gap-1.5 text-[11.5px] text-accent-green">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent-green" /> {reporting} {reporting === 1 ? "camera" : "cameras"} reporting
-        </span>
-      </div>
-
-      <div className="absolute left-4 top-12 z-10 rounded-lg border border-border-2 bg-bg-1/85 px-3 py-2.5 text-[11.5px] leading-[1.9] text-text-secondary backdrop-blur">
-        {(
-          [
-            ["bg-accent-blue", "Camera online"],
-            ["bg-accent-amber", "Degraded"],
-            ["bg-accent-red", "Alarm, last minute"],
-            ["bg-text-disabled", "Offline"],
-          ] as const
-        ).map(([c, l]) => (
-          <div key={l} className="flex items-center gap-2">
-            <span className={`h-2.5 w-2.5 rounded-full ${c}`} /> {l}
+      {/* One wrapping bar, so the title and the controls never overlap on a narrow panel. */}
+      <div className="pointer-events-none absolute inset-x-4 top-4 z-10 flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-col items-start gap-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-bg-1/60 px-1.5 py-0.5 backdrop-blur-sm">
+            <span className="text-[14px] font-semibold text-text-primary">Live site map</span>
+            <span className="flex items-center gap-1.5 text-[11.5px] text-accent-green">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent-green" /> {reporting} {reporting === 1 ? "camera" : "cameras"} reporting
+            </span>
           </div>
-        ))}
-      </div>
+          <div className="rounded-lg border border-border-2 bg-bg-1/85 px-3 py-2.5 text-[11.5px] leading-[1.9] text-text-secondary backdrop-blur max-[700px]:hidden">
+            {(
+              [
+                ["bg-accent-blue", "Camera online"],
+                ["bg-accent-amber", "Degraded"],
+                ["bg-accent-red", "Alarm, last minute"],
+                ["bg-text-disabled", "Offline"],
+              ] as const
+            ).map(([c, l]) => (
+              <div key={l} className="flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${c}`} /> {l}
+              </div>
+            ))}
+          </div>
+        </div>
 
-      <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
-      <SitePicker sites={map?.sites ?? []} value={map?.site_id} onChange={onSiteChange} />
-      <Link
-        to="/map"
-        className="flex items-center gap-1.5 rounded-lg border border-border-2 bg-bg-1/85 px-2.5 py-1.5 text-[12px] text-text-secondary backdrop-blur hover:text-text-primary"
-      >
-        <MapIcon size={13} /> {map?.has_image ? "Edit map" : "Upload site plan"}
-      </Link>
+        <div className="pointer-events-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <SitePicker sites={map?.sites ?? []} value={map?.site_id} onChange={onSiteChange} />
+          <Link
+            to="/map"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border-2 bg-bg-1/85 px-2.5 py-1.5 text-[12px] text-text-secondary backdrop-blur hover:text-text-primary"
+          >
+            <MapIcon size={13} /> {map?.has_image ? "Edit map" : "Upload site plan"}
+          </Link>
+        </div>
       </div>
 
       <div className="absolute" style={stage}>
