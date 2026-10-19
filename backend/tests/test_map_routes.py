@@ -31,7 +31,8 @@ def png(width: int, height: int) -> bytes:
 
 def test_cameras_are_placed_by_name_and_can_be_removed(role):
     role(OPERATOR)
-    assert client.get("/api/live/map").json() == {"has_image": False, "image_version": 0, "positions": {}}
+    first = client.get("/api/live/map").json()
+    assert (first["has_image"], first["image_version"], first["positions"]) == (False, 0, {})
     client.put("/api/live/map/positions", json={"name": "Gate 3", "x": 0.25, "y": 0.75})
     assert client.get("/api/live/map").json()["positions"] == {"Gate 3": [0.25, 0.75]}
     client.put("/api/live/map/positions", json={"name": "Gate 3", "x": None, "y": None})
@@ -64,3 +65,54 @@ def test_auditors_can_view_but_not_change_the_map(role):
     assert client.get("/api/live/map").status_code == 200
     assert client.put("/api/live/map/positions", json={"name": "A", "x": 0.1, "y": 0.1}).status_code == 403
     assert client.post("/api/live/map/image", files={"file": ("s.png", png(10, 10), "image/png")}).status_code == 403
+
+
+def test_a_map_from_before_sites_becomes_the_default_site(role, tmp_path):
+    role(OPERATOR)
+    (tmp_path / "site_map.json").write_text('{"image_version": 3, "positions": {"Gate 3": [0.5, 0.5]}}', encoding="utf-8")
+    (tmp_path / "site_map.jpg").write_bytes(png(10, 10))
+    reply = client.get("/api/live/map").json()
+    assert reply["site_id"] == "main" and reply["image_version"] == 3
+    assert reply["positions"] == {"Gate 3": [0.5, 0.5]} and reply["has_image"] is True
+    assert [s["id"] for s in reply["sites"]] == ["main"]
+
+
+def test_each_site_keeps_its_own_plan_and_positions(role):
+    role(OPERATOR)
+    client.put("/api/live/map/positions", json={"name": "Gate 3", "x": 0.1, "y": 0.1})
+    new = client.post("/api/live/map/sites", json={"name": "BPIT Rohini"}).json()["id"]
+    client.put(f"/api/live/map/positions?site={new}", json={"name": "Gate 3", "x": 0.9, "y": 0.9})
+    client.post(f"/api/live/map/image?site={new}", files={"file": ("s.png", png(20, 10), "image/png")})
+
+    other = client.get(f"/api/live/map?site={new}").json()
+    assert other["site_name"] == "BPIT Rohini" and other["has_image"] is True
+    assert other["positions"] == {"Gate 3": [0.9, 0.9]}
+    default = client.get("/api/live/map").json()
+    assert default["positions"] == {"Gate 3": [0.1, 0.1]} and default["has_image"] is False
+    assert client.get(f"/api/live/map/image?site={new}").status_code == 200
+    assert client.get("/api/live/map/image").status_code == 404
+
+
+def test_sites_can_be_renamed_and_removed_but_not_the_last(role, tmp_path):
+    role(OPERATOR)
+    new = client.post("/api/live/map/sites", json={"name": "Outpost"}).json()["id"]
+    client.post(f"/api/live/map/image?site={new}", files={"file": ("s.png", png(20, 10), "image/png")})
+    names = {s["id"]: s["name"] for s in client.patch(f"/api/live/map/sites/{new}", json={"name": "North post"}).json()["sites"]}
+    assert names[new] == "North post"
+    assert client.delete(f"/api/live/map/sites/{new}").status_code == 200
+    assert not (tmp_path / "site_maps" / f"{new}.jpg").exists()
+    assert client.get(f"/api/live/map?site={new}").status_code == 404
+    assert client.delete("/api/live/map/sites/main").status_code == 409
+
+
+def test_unknown_sites_are_refused(role):
+    role(OPERATOR)
+    assert client.get("/api/live/map?site=../../etc").status_code == 404
+    assert client.post("/api/live/map/image?site=nope", files={"file": ("s.png", png(10, 10), "image/png")}).status_code == 404
+    assert client.put("/api/live/map/positions?site=nope", json={"name": "A", "x": 0.1, "y": 0.1}).status_code == 404
+
+
+def test_auditors_cannot_change_sites(role):
+    role(AUDITOR)
+    assert client.post("/api/live/map/sites", json={"name": "X"}).status_code == 403
+    assert client.delete("/api/live/map/sites/main").status_code == 403

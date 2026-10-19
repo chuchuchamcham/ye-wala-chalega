@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { LiveCamera, LiveEvent } from "../../api/live";
 import { mapApi, type SiteMap } from "../../api/map";
+import { SitePicker } from "./SitePicker";
 
 // A camera glows red for this long after an alarm-level event (as on Site Map).
 const ALARM_GLOW_SEC = 60;
@@ -30,7 +31,15 @@ function autoPosition(i: number, n: number): [number, number] {
   return [0.5 + Math.cos(a) * 0.32, 0.52 + Math.sin(a) * 0.3];
 }
 
-export function OpsMap({ map, cameras, events, now }: { map: SiteMap | null; cameras: LiveCamera[]; events: LiveEvent[]; now: number }) {
+export function OpsMap({
+  map, cameras, events, now, onSiteChange,
+}: {
+  map: SiteMap | null;
+  cameras: LiveCamera[];
+  events: LiveEvent[];
+  now: number;
+  onSiteChange: (id: string) => void;
+}) {
   const positions = map?.positions ?? {};
   const unplaced = cameras.filter((c) => !(c.name in positions));
   const alarmed = new Set(
@@ -98,17 +107,20 @@ export function OpsMap({ map, cameras, events, now }: { map: SiteMap | null; cam
         ))}
       </div>
 
+      <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+      <SitePicker sites={map?.sites ?? []} value={map?.site_id} onChange={onSiteChange} />
       <Link
         to="/map"
-        className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-lg border border-border-2 bg-bg-1/85 px-2.5 py-1.5 text-[12px] text-text-secondary backdrop-blur hover:text-text-primary"
+        className="flex items-center gap-1.5 rounded-lg border border-border-2 bg-bg-1/85 px-2.5 py-1.5 text-[12px] text-text-secondary backdrop-blur hover:text-text-primary"
       >
         <MapIcon size={13} /> {map?.has_image ? "Edit map" : "Upload site plan"}
       </Link>
+      </div>
 
       <div className="absolute" style={stage}>
         {hasImage && map && (
           <img
-            src={mapApi.imageUrl(map.image_version)}
+            src={mapApi.imageUrl(map.site_id, map.image_version)}
             alt="Site plan"
             onLoad={(e) => setRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
             className="absolute inset-0 h-full w-full"

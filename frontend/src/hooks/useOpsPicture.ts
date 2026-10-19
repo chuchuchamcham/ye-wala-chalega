@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { liveApi, type LiveCamera, type LiveEvent } from "../api/live";
+import { ApiError } from "../api/client";
 import { mapApi, type SiteMap } from "../api/map";
 import { useLiveEvents } from "./useLiveEvents";
 
@@ -8,7 +9,7 @@ const HISTORY = 500;
 
 /** Cameras, the site plan and live events for the Overview: history from the REST backlog,
  * kept current by the event websocket. */
-export function useOpsPicture() {
+export function useOpsPicture(site: string | null, onMissingSite: () => void) {
   const [cameras, setCameras] = useState<LiveCamera[]>([]);
   const [history, setHistory] = useState<LiveEvent[]>([]);
   const [map, setMap] = useState<SiteMap | null>(null);
@@ -19,7 +20,11 @@ export function useOpsPicture() {
     const load = () => {
       void liveApi.listCameras().then((c) => !cancelled && setCameras(c)).catch(() => {});
       void liveApi.recentEvents(HISTORY).then((e) => !cancelled && setHistory(e)).catch(() => {});
-      void mapApi.get().then((m) => !cancelled && setMap(m)).catch(() => {});
+      void mapApi
+        .get(site)
+        .then((m) => !cancelled && setMap(m))
+        // A remembered site that was removed since: fall back to the default.
+        .catch((err) => err instanceof ApiError && err.status === 404 && onMissingSite());
     };
     load();
     const id = window.setInterval(load, POLL_MS);
@@ -27,7 +32,9 @@ export function useOpsPicture() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, []);
+    // onMissingSite only resets the choice; reloading on its identity would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [site]);
 
   const events = useMemo(() => {
     const seen = new Set<string>();

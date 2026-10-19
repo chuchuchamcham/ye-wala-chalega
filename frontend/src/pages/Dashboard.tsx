@@ -10,6 +10,7 @@ import { JobStatusBadge, StatusBadge } from "../components/common/StatusBadge";
 import { ProgressPanel } from "../components/jobs/ProgressPanel";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { hourly, threatIndex, useOpsPicture } from "../hooks/useOpsPicture";
+import { useSiteChoice } from "../hooks/useSiteChoice";
 import { eventMeta } from "../lib/eventMeta";
 
 function useNow(intervalMs = 5000) {
@@ -41,7 +42,8 @@ const isPlate = (e: { type: string }) => e.type.startsWith("PLATE_") || e.type.s
 
 export function Dashboard() {
   const { error, jobs, metrics, activeJob, refetch } = useDashboardData();
-  const { cameras, events, map, connected } = useOpsPicture();
+  const [siteChoice, chooseSite] = useSiteChoice();
+  const { cameras, events, map, connected } = useOpsPicture(siteChoice, () => chooseSite(null));
   const navigate = useNavigate();
   const [cancelling, setCancelling] = useState(false);
   const now = useNow();
@@ -57,7 +59,7 @@ export function Dashboard() {
   const platesPerHour = useMemo(() => hourly(events, now, isPlate), [events, now]);
   const threatLabel = index >= 60 ? "High" : index >= 25 ? "Elevated" : "Low";
   const threatDot = index >= 60 ? "red" : index >= 25 ? "orange" : "green";
-  const site = cameras.find((c) => c.location)?.location;
+  const site = (map && map.sites.length > 1 ? map.site_name : null) ?? cameras.find((c) => c.location)?.location;
 
   async function handleCancelActive() {
     if (!activeJob) return;
@@ -102,7 +104,7 @@ export function Dashboard() {
 
           {/* Map and alerts fill the screen height left over on a desktop */}
           <div className="grid h-[calc(100vh-430px)] min-h-[420px] grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] gap-3.5 max-[1100px]:h-auto max-[1100px]:grid-cols-1">
-            <OpsMap map={map} cameras={cameras} events={events} now={now} />
+            <OpsMap map={map} cameras={cameras} events={events} now={now} onSiteChange={chooseSite} />
 
             <div className="surface flex min-h-[380px] flex-col overflow-hidden rounded-xl border border-border-1">
               <div className="flex items-center justify-between px-4 pb-2 pt-4">

@@ -56,6 +56,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  patch: <T>(path: string, body: unknown) =>
+    request<T>(path, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
   postForm: <T>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };

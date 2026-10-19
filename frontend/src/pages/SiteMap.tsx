@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { ImageUp, Loader2, Map as MapIcon, MapPin, Route, X } from "lucide-react";
+import { ImageUp, Loader2, Map as MapIcon, MapPin, Pencil, Plus, Route, Trash2, X } from "lucide-react";
 import { Panel } from "../components/common/Panel";
 import type { SessionUser } from "../api/auth";
 import { ApiError } from "../api/client";
 import { liveApi, type LiveCamera, type LiveEvent } from "../api/live";
 import { mapApi, type SiteMap as SiteMapState } from "../api/map";
 import { eventMeta } from "../lib/eventMeta";
+import { SitePicker } from "../components/dashboard/SitePicker";
+import { useSiteChoice } from "../hooks/useSiteChoice";
 
 const REFRESH_MS = 3000;
 // A camera glows red for this long after an alarm-level event.
@@ -58,20 +60,26 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
   const [dragging, setDragging] = useState<{ name: string; x: number; y: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [site, chooseSite] = useSiteChoice();
+  const [naming, setNaming] = useState<{ mode: "add" | "rename"; value: string } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
-      const [m, c, e] = await Promise.all([mapApi.get(), liveApi.listCameras(), liveApi.recentEvents(300)]);
+      const [m, c, e] = await Promise.all([mapApi.get(site), liveApi.listCameras(), liveApi.recentEvents(300)]);
       setMap(m);
       setCameras(c);
       setEvents(e);
       setNow(Date.now() / 1000);
     } catch (err) {
+      // A remembered site that was removed since: fall back to the default.
+      if (err instanceof ApiError && err.status === 404 && site) return chooseSite(null);
       setError(err instanceof ApiError ? err.message : "Could not load the site map.");
     }
-  }, []);
+    // chooseSite only writes the choice, which re-runs this through `site`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [site]);
 
   useEffect(() => {
     void load();
@@ -105,7 +113,7 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
 
   async function save(name: string, x: number | null, y: number | null) {
     try {
-      const { positions: saved } = await mapApi.place(name, x, y);
+      const { positions: saved } = await mapApi.place(map?.site_id ?? site, name, x, y);
       setMap((m) => (m ? { ...m, positions: saved } : m));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save the position.");
@@ -145,7 +153,7 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
     setUploading(true);
     setError(null);
     try {
-      await mapApi.uploadImage(file);
+      await mapApi.uploadImage(map?.site_id ?? site, file);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not upload the plan.");
@@ -155,16 +163,83 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
     }
   }
 
+  async function submitName() {
+    if (!naming || !naming.value.trim()) return setNaming(null);
+    try {
+      if (naming.mode === "add") {
+        const { id } = await mapApi.addSite(naming.value.trim());
+        chooseSite(id);
+      } else if (map) {
+        await mapApi.renameSite(map.site_id, naming.value.trim());
+        await load();
+      }
+      setNaming(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save the site.");
+    }
+  }
+
+  async function removeSite() {
+    if (!map || !window.confirm(`Remove ${map.site_name} and its site plan? Camera positions on it are lost.`)) return;
+    try {
+      await mapApi.removeSite(map.site_id);
+      chooseSite(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not remove the site.");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-text-primary">Site Map</h1>
+          <h1 className="text-xl font-bold text-text-primary">
+            Site Map{map && map.sites.length > 1 ? <span className="font-normal text-text-tertiary"> · {map.site_name}</span> : null}
+          </h1>
           <p className="mt-1 max-w-[680px] text-[12.5px] text-text-tertiary">
             Every camera on a plan of the post. Markers turn red when a camera raises an alarm, and arrows trace
             where a watched person or vehicle has been seen across cameras in the last 30 minutes.
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <SitePicker sites={map?.sites ?? []} value={map?.site_id} onChange={chooseSite} />
+          {canEdit && naming && (
+            <form
+              onSubmit={(e) => { e.preventDefault(); void submitName(); }}
+              className="flex items-center gap-1.5"
+            >
+              <input
+                autoFocus
+                value={naming.value}
+                onChange={(e) => setNaming({ ...naming, value: e.target.value })}
+                placeholder="BPIT Rohini"
+                aria-label="Site name"
+                maxLength={80}
+                className="w-44 rounded border border-border-2 bg-bg-2 px-2.5 py-[7px] text-[12px] text-text-primary focus:border-accent-blue focus:outline-none"
+              />
+              <button type="submit" className="rounded border border-border-2 bg-bg-3 px-3 py-2 text-[12px] font-semibold text-text-primary hover:bg-bg-4">
+                {naming.mode === "add" ? "Add" : "Save"}
+              </button>
+              <button type="button" onClick={() => setNaming(null)} aria-label="Cancel" className="p-1.5 text-text-tertiary hover:text-text-primary"><X size={14} /></button>
+            </form>
+          )}
+          {canEdit && !naming && (
+            <>
+              <button onClick={() => setNaming({ mode: "add", value: "" })} className="inline-flex items-center gap-1.5 rounded border border-border-2 bg-bg-2 px-3 py-2 text-[12px] font-semibold text-text-secondary hover:bg-bg-3 hover:text-text-primary">
+                <Plus size={13} /> Add site
+              </button>
+              {map && (
+                <button onClick={() => setNaming({ mode: "rename", value: map.site_name })} aria-label="Rename site" title="Rename site" className="rounded border border-border-2 bg-bg-2 p-2 text-text-secondary hover:bg-bg-3 hover:text-text-primary">
+                  <Pencil size={13} />
+                </button>
+              )}
+              {map && map.sites.length > 1 && (
+                <button onClick={() => void removeSite()} aria-label="Remove site" title="Remove site" className="rounded border border-border-2 bg-bg-2 p-2 text-text-secondary hover:border-accent-red/40 hover:text-accent-red">
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </>
+          )}
         {canEdit && (
           <div className="flex items-center gap-2">
             <input ref={fileRef} id="site-plan" type="file" accept="image/*" className="hidden" onChange={(e) => void upload(e.target.files?.[0])} />
@@ -178,6 +253,7 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
             </button>
           </div>
         )}
+        </div>
       </div>
 
       {error && (
@@ -213,7 +289,7 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
             style={map?.has_image ? undefined : { aspectRatio: "16 / 9" }}
           >
             {map?.has_image ? (
-              <img src={mapApi.imageUrl(map.image_version)} alt="Site plan" className="block w-full" draggable={false} />
+              <img src={mapApi.imageUrl(map.site_id, map.image_version)} alt="Site plan" className="block w-full" draggable={false} />
             ) : (
               <div
                 className="absolute inset-0 flex items-center justify-center text-[12.5px] text-text-tertiary"
