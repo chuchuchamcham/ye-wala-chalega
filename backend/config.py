@@ -351,6 +351,12 @@ class AgentConfig:
     cloud_model: str = field(default_factory=lambda: os.environ.get("DRISHTI_AGENT_MODEL", "claude-opus-5-5"))
     cloud_effort: str = field(default_factory=lambda: os.environ.get("DRISHTI_AGENT_EFFORT", "medium"))
     cloud_timeout_sec: float = 60.0
+    # Optional hosted model with a free tier: groq | gemini | openrouter |
+    # custom. Its key is read from the provider's own environment variable
+    # (GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, DRISHTI_HOSTED_API_KEY).
+    hosted_provider: str = field(default_factory=lambda: os.environ.get("DRISHTI_HOSTED_PROVIDER", ""))
+    hosted_model: str = field(default_factory=lambda: os.environ.get("DRISHTI_HOSTED_MODEL", ""))
+    hosted_url: str = field(default_factory=lambda: os.environ.get("DRISHTI_HOSTED_URL", ""))
     # Local model through Ollama, so briefs keep coming with no internet.
     local_model: str = field(default_factory=lambda: os.environ.get("DRISHTI_LOCAL_MODEL", "qwen2.5:3b"))
     local_url: str = field(default_factory=lambda: os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434"))

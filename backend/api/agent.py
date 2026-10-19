@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 from backend.agent.models import ModelUnavailable
 from backend.agent.service import AgentService
 from backend.api.auth import ADMIN, OPERATOR, User, require_role
-from backend.config import get_config
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -39,13 +38,10 @@ class AskRequest(BaseModel):
 
 @router.get("/status")
 def status() -> dict:
-    config = _service.config if _service is not None else get_config().agent
-    return {
-        "enabled": _service is not None,
-        "cloud_model": config.cloud_model,
-        "local_model": config.local_model,
-        "message": None if _service is not None else OFF_MESSAGE,
-    }
+    if _service is None:
+        return {"enabled": False, "models": [], "message": OFF_MESSAGE}
+    # In the order briefs try them; a rules-based brief follows if all fail.
+    return {"enabled": True, "models": _service.models(), "message": None}
 
 
 @router.get("/briefs")

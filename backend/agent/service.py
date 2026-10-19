@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass, field
 from backend.agent.agents import AgentRun, run_copilot, run_supervisor
 from backend.agent.incidents import Incident, IncidentGrouper
 from backend.agent.models import ModelChain, ModelUnavailable
+from backend.agent.template import template_brief
 from backend.agent.tools import EventSource
 from backend.core.events import INFO
 
@@ -53,12 +54,16 @@ class Brief:
     incident_id: str
     camera_id: str
     camera_name: str
-    status: str  # "ready" or "failed"
+    # "ready": written by an AI model. "template": no model answered, so the
+    # brief was written from fixed rules and `note` says why.
+    status: str
     text: str
-    model: str | None
+    model: str
+    model_kind: str  # claude | cloud | local | template
     created_at: float
     incident: dict
     proposal_ids: list[str] = field(default_factory=list)
+    note: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -145,36 +150,41 @@ class AgentService:
     def brief_incident(self, incident: Incident) -> Brief:
         with self._lock:
             snapshot = incident.for_agent()
-        failure = None
+        run = model = None
+        note = None
         try:
-            run, _ = self.chain.run(lambda model: run_supervisor(
-                model, snapshot, self.source, self.manager, max_steps=self.config.max_steps))
+            run, model = self.chain.run(lambda m: run_supervisor(
+                m, snapshot, self.source, self.manager, max_steps=self.config.max_steps))
         except ModelUnavailable as exc:
-            failure = f"AI analyst unavailable: {exc}"
-        except Exception:  # an operator must see that a brief failed, not just get nothing
-            logger.exception("brief failed for incident %s", incident.incident_id)
-            failure = "AI brief failed with an internal error (see the server log)"
-        if failure is not None:
-            brief = Brief(
-                brief_id=uuid.uuid4().hex[:10], incident_id=incident.incident_id,
-                camera_id=incident.camera_id, camera_name=incident.camera_name, status="failed",
-                text=failure, model=None, created_at=self.clock(), incident=snapshot,
-            )
-            self.audit.record("AGENT_BRIEF_FAILED", "AI brief could not be written.",
-                              {"incident_id": incident.incident_id, "error": failure},
-                              incident.camera_id, incident.camera_name)
-        else:
+            note = f"No AI model answered: {exc}"
+        except Exception:  # the operator still gets a brief; the bug goes to the log
+            logger.exception("AI brief failed for incident %s", incident.incident_id)
+            note = "The AI brief failed with an internal error (see the server log)"
+        if run is not None and (run.stopped == "refusal" or not run.text.strip()):
+            note = f"{run.model} gave no usable brief ({run.stopped})"
+
+        if note is None:
             proposals = self._keep_proposals(run, "incident", incident.incident_id)
             brief = Brief(
                 brief_id=uuid.uuid4().hex[:10], incident_id=incident.incident_id,
                 camera_id=incident.camera_id, camera_name=incident.camera_name, status="ready",
-                text=run.text, model=run.model, created_at=self.clock(), incident=snapshot,
-                proposal_ids=[p.proposal_id for p in proposals],
+                text=run.text, model=run.model, model_kind=getattr(model, "kind", "cloud"),
+                created_at=self.clock(), incident=snapshot, proposal_ids=[p.proposal_id for p in proposals],
             )
-            self.audit.record("AGENT_BRIEF", f"AI brief written by {run.model}.",
-                              {"incident_id": incident.incident_id, "brief_id": brief.brief_id, "model": run.model,
-                               "text": run.text, "stopped": run.stopped, "steps": run.steps},
-                              incident.camera_id, incident.camera_name)
+            data = {"model": run.model, "stopped": run.stopped, "steps": run.steps}
+            reason = f"AI brief written by {run.model}."
+        else:
+            brief = Brief(
+                brief_id=uuid.uuid4().hex[:10], incident_id=incident.incident_id,
+                camera_id=incident.camera_id, camera_name=incident.camera_name, status="template",
+                text=template_brief(snapshot), model="template", model_kind="template",
+                created_at=self.clock(), incident=snapshot, note=note,
+            )
+            data = {"model": "template", "note": note}
+            reason = "Brief written from rules; no AI model was available."
+        self.audit.record("AGENT_BRIEF", reason,
+                          {"incident_id": incident.incident_id, "brief_id": brief.brief_id, "text": brief.text, **data},
+                          incident.camera_id, incident.camera_name)
         with self._lock:
             self._briefs.append(brief)
             del self._briefs[:-200]
@@ -186,13 +196,18 @@ class AgentService:
         question = question.strip()[:1000]
         if not question:
             raise ValueError("question is empty")
-        run, _ = self.chain.run(lambda model: run_copilot(
-            model, question, self.source, self.manager, max_steps=self.config.max_steps))
+        run, model = self.chain.run(lambda m: run_copilot(
+            m, question, self.source, self.manager, max_steps=self.config.max_steps))
         proposals = self._keep_proposals(run, "copilot", None)
         self.audit.record("AGENT_ANSWER", f"Copilot answered {user}.",
                           {"question": question, "answer": run.text, "model": run.model, "user": user,
                            "steps": run.steps, "proposal_ids": [p.proposal_id for p in proposals]})
-        return {"answer": run.text, "model": run.model, "proposals": [p.to_dict() for p in proposals]}
+        return {"answer": run.text, "model": run.model, "model_kind": getattr(model, "kind", "cloud"),
+                "proposals": [p.to_dict() for p in proposals]}
+
+    def models(self) -> list[dict]:
+        """The models briefs are tried on, in order."""
+        return [{"name": m.name, "kind": getattr(m, "kind", "cloud")} for m in self.chain.models]
 
     # --- proposals ----------------------------------------------------------------
 

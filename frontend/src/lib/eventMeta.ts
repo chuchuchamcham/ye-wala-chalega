@@ -45,7 +45,6 @@ const REGISTRY: Record<string, EventMeta> = {
   // AI analyst records (backend/agent). Always informational: the analyst
   // explains and proposes, it never raises an alarm.
   AGENT_BRIEF: { label: "AI Brief", severity: "blue", icon: Sparkles },
-  AGENT_BRIEF_FAILED: { label: "AI Brief Unavailable", severity: "neutral", icon: Sparkles },
   AGENT_ANSWER: { label: "AI Copilot Answer", severity: "blue", icon: Sparkles },
   AGENT_PROPOSAL: { label: "AI Proposal", severity: "blue", icon: Sparkles },
   AGENT_APPROVED: { label: "AI Proposal Approved", severity: "green", icon: Sparkles },

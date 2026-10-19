@@ -19,9 +19,11 @@ from backend.agent.agents import run_agent, run_supervisor
 from backend.agent.incidents import IncidentGrouper
 from backend.agent.models import (
     ClaudeModel,
+    HostedModel,
     ModelChain,
     ModelUnavailable,
     OllamaModel,
+    build_chain,
     ToolCall,
     ToolResult,
     ToolSpec,
@@ -337,6 +339,59 @@ def test_ollama_missing_model_or_server_means_unavailable():
         down.start("sys", []).send("q")
 
 
+# --- hosted free-tier models ---------------------------------------------------------------
+
+def hosted(handler, key="test-key"):
+    return HostedModel("groq", "some-model", "https://api.example/v1", key, "GROQ_API_KEY",
+                       http=httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+def test_hosted_model_tool_round_trip():
+    seen = []
+
+    def handle(request):
+        seen.append((request.headers.get("authorization"), json.loads(request.content)))
+        if len(seen) == 1:
+            return httpx.Response(200, json={"choices": [{"finish_reason": "tool_calls", "message": {
+                "role": "assistant", "content": None,
+                "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "echo", "arguments": '{"x": 3}'}}]}}]})
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "Cloud brief."}}]})
+
+    tool = ToolSpec("echo", "Echo", {"type": "object", "properties": {}}, lambda a: a)
+    conv = hosted(handle).start("sys", [tool])
+    turn = conv.send("task")
+    assert turn.tool_calls[0].call_id == "call_1" and turn.tool_calls[0].input == {"x": 3}
+    turn = conv.send_tool_results([ToolResult("call_1", "echo", "ok")])
+    assert turn.text == "Cloud brief." and turn.model == "groq:some-model"
+    auth, first = seen[0]
+    assert auth == "Bearer test-key" and first["tool_choice"] == "auto" and first["tools"][0]["function"]["name"] == "echo"
+    assert seen[1][1]["messages"][-1] == {"role": "tool", "tool_call_id": "call_1", "content": "ok"}
+
+
+@pytest.mark.parametrize("status, message", [(401, "rejected the key"), (429, "free-tier limit"), (400, "error 400")])
+def test_hosted_model_problems_fall_through_to_the_next_model(status, message):
+    model = hosted(lambda r: httpx.Response(status, json={}))
+    with pytest.raises(ModelUnavailable, match=message):
+        model.start("sys", []).send("q")
+
+
+def test_hosted_model_without_its_key_is_skipped():
+    with pytest.raises(ModelUnavailable, match="set GROQ_API_KEY"):
+        hosted(lambda r: httpx.Response(200), key=None).start("sys", [])
+
+
+def test_chain_order_follows_configuration(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    chain = build_chain(AgentConfig(hosted_provider="openrouter", hosted_model=""))
+    assert [m.kind for m in chain.models] == ["claude", "cloud", "local"]
+    assert chain.models[1].name == "openrouter:openrouter/free"
+    assert [m.kind for m in build_chain(AgentConfig(hosted_provider="")).models] == ["claude", "local"]
+    with pytest.raises(ValueError, match="DRISHTI_HOSTED_MODEL"):
+        build_chain(AgentConfig(hosted_provider="groq", hosted_model=""))
+    with pytest.raises(ValueError, match="unknown"):
+        build_chain(AgentConfig(hosted_provider="nope"))
+
+
 # --- the service --------------------------------------------------------------------------
 
 def make_service(script, events=()):
@@ -362,20 +417,62 @@ def test_brief_is_written_and_audited_without_raising_an_alarm():
     assert service.briefs()[0]["text"].startswith("Situation:")
 
 
-def test_brief_failure_is_recorded_when_no_model_answers():
+def test_rules_write_the_brief_when_no_model_answers():
     service, store = make_service([ModelUnavailable("offline")])
     incident = service._grouper.add(event("ZONE_ENTRY", "CRITICAL", 1.0))
     brief = service.brief_incident(incident)
-    assert brief.status == "failed" and "offline" in brief.text
-    assert store.recorded[0]["type"] == "AGENT_BRIEF_FAILED"
+    assert brief.status == "template" and brief.model_kind == "template"
+    assert brief.text.startswith("Situation: Restricted zone entered on CAM-01")
+    assert "offline" in brief.note
+    assert store.recorded[0]["type"] == "AGENT_BRIEF" and store.recorded[0]["data"]["model"] == "template"
 
 
-def test_unexpected_errors_still_leave_a_failed_brief():
+def test_an_empty_or_refused_answer_also_falls_back_to_rules():
+    service, _ = make_service([Turn(text="", tool_calls=[], stop="refusal", model="cloud")])
+    brief = service.brief_incident(service._grouper.add(event("ZONE_ENTRY", "CRITICAL", 1.0)))
+    assert brief.status == "template" and "refusal" in brief.note
+
+
+def test_unexpected_errors_still_leave_a_brief():
     service, store = make_service([RuntimeError("bug")])
     brief = service.brief_incident(service._grouper.add(event("ZONE_ENTRY", "CRITICAL", 1.0)))
-    assert brief.status == "failed" and "internal error" in brief.text
+    assert brief.status == "template" and "internal error" in brief.note
     assert service.briefs()[0]["brief_id"] == brief.brief_id
-    assert store.recorded[0]["type"] == "AGENT_BRIEF_FAILED"
+    assert store.recorded[0]["type"] == "AGENT_BRIEF"
+
+
+# --- rules-based brief ------------------------------------------------------------
+
+def test_template_brief_leads_with_the_alarm_and_suggests_the_standard_step():
+    from backend.agent.template import template_brief
+
+    grouper = IncidentGrouper()
+    incident = grouper.add(event("ZONE_APPROACH", "MEDIUM", 1_700_000_000.0, reason="Track #1 heading for zone"))
+    grouper.add(event("ZONE_ENTRY", "CRITICAL", 1_700_000_005.0, reason="Track #1 entered zone"))
+    grouper.add(event("LOITERING", "MEDIUM", 1_700_000_030.0, reason="Track #1 loitering 25s"))
+    text = template_brief(incident.for_agent())
+    situation, evidence, step = text.split("\n")
+    assert situation.startswith("Situation: Restricted zone entered on CAM-01 at ")
+    assert "3 related events between" in situation
+    assert evidence.startswith("Evidence: ") and evidence.index("Restricted zone entered") < evidence.index("Loitering")
+    assert step == "Next step: Check the live view of CAM-01 and send the nearest patrol if the person is still inside the zone."
+
+
+def test_template_brief_groups_repeated_events():
+    from backend.agent.template import template_brief
+
+    events = [{"type": "ZONE_ENTRY", "severity": "CRITICAL", "time": "11:04:28", "track_id": t} for t in (6, 7, 10)]
+    events.append({"type": "ZONE_EXIT", "severity": "LOW", "time": "11:04:40", "track_id": 6, "reason": "Track #6 left"})
+    evidence = template_brief({"camera": "CAM-01", "events": events}).split("\n")[1]
+    assert evidence == "Evidence: 11:04:28 Restricted zone entered ×3 (tracks #6, #7, #10); 11:04:40 Restricted zone left (Track #6 left)."
+
+
+def test_template_brief_handles_unknown_types_and_no_events():
+    from backend.agent.template import template_brief
+
+    assert "Next step: Review the evidence clip" in template_brief({"camera": "CAM-09", "events": []})
+    text = template_brief({"camera": "CAM-09", "events": [{"type": "NEW_KIND_OF_ALERT", "severity": "HIGH", "time": "10:00:00"}]})
+    assert text.startswith("Situation: New kind of alert on CAM-09 at 10:00:00")
 
 
 def test_each_alarm_incident_is_scheduled_once():

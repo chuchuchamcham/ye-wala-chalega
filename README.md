@@ -82,7 +82,7 @@ Every threshold is in `ZoneConfig` (`backend/config.py`):
 | `approach_cooldown_sec` | 20.0 | Minimum gap before the same track warns again. |
 
 ```bash
-pytest backend/tests -q      # 329 tests
+pytest backend/tests -q      # 339 tests
 ```
 
 ### AI Analyst
@@ -90,18 +90,23 @@ pytest backend/tests -q      # 329 tests
 Turns alarms into short incident briefs, answers operator questions, and
 proposes actions that wait for an operator's approval. It never controls the
 siren or cameras, and every step it takes goes into the Audit Log. Off by
-default:
+default; `set DRISHTI_AGENTS=1` (Windows) or `export DRISHTI_AGENTS=1` turns
+it on.
 
-```bash
-set DRISHTI_AGENTS=1               # Windows; export DRISHTI_AGENTS=1 elsewhere
-set ANTHROPIC_API_KEY=...          # Claude, used whenever it is reachable
-ollama pull qwen2.5:3b             # local model, takes over when offline
-python scripts/serve.py
-```
+Each brief tries these in order and uses the first that answers. Set up any
+of them, or none:
 
-`DRISHTI_AGENT_MODEL` and `DRISHTI_LOCAL_MODEL` choose other models. With
-neither model reachable, alarms still work and the AI Analyst page says why
-the brief is missing.
+| | Needs | Cost |
+|---|---|---|
+| Claude | `ANTHROPIC_API_KEY` | Paid per use |
+| A hosted free tier | `DRISHTI_HOSTED_PROVIDER` = `groq`, `gemini` or `openrouter`, its key (`GROQ_API_KEY`, `GEMINI_API_KEY` or `OPENROUTER_API_KEY`) and `DRISHTI_HOSTED_MODEL` | Free, rate-limited |
+| Local model | [Ollama](https://ollama.com), then `ollama pull qwen2.5:3b` | Free, offline, slower on CPU |
+| Rules | Nothing | Free, instant; facts only, no Copilot |
+
+Model names on free tiers change often: pick a current one from the
+provider's model list (OpenRouter defaults to its `openrouter/free` router).
+`DRISHTI_AGENT_MODEL` and `DRISHTI_LOCAL_MODEL` choose other Claude and local
+models. Whatever is or isn't set up, alarms work exactly the same.
 
 ### Measuring accuracy
 

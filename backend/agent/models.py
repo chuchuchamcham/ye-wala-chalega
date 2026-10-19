@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass
 from typing import Callable, Protocol, TypeVar
@@ -77,12 +78,17 @@ class Conversation(Protocol):
 
 class ChatModel(Protocol):
     name: str
+    # claude | cloud | local: shown to operators, so they know whether an
+    # answer came from the cloud or from the machine at the post.
+    kind: str
     def start(self, system: str, tools: list[ToolSpec]) -> Conversation: ...
 
 
 # --- Claude -------------------------------------------------------------------
 
 class ClaudeModel:
+    kind = "claude"
+
     def __init__(self, model: str, effort: str = "medium", timeout_sec: float = 60.0, client=None):
         self.name = model
         self.effort = effort
@@ -182,6 +188,8 @@ class ClaudeConversation:
 # --- Local model through Ollama -------------------------------------------------
 
 class OllamaModel:
+    kind = "local"
+
     def __init__(self, model: str, base_url: str = "http://127.0.0.1:11434",
                  timeout_sec: float = 180.0, http: httpx.Client | None = None):
         self.name = model
@@ -245,6 +253,127 @@ class OllamaConversation:
         )
 
 
+# --- Hosted models with free tiers (Groq, Gemini, OpenRouter, ...) ----------------
+#
+# Several providers offer free, rate-limited access through the same widely
+# used chat-completions request format, so one adapter covers them all.
+# Model names on these services change often; the operator names one with
+# DRISHTI_HOSTED_MODEL rather than this file guessing.
+
+HOSTED_PROVIDERS = {
+    # provider: (base URL, environment variable holding the key, default model)
+    "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY", None),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY", None),
+    # OpenRouter's own router that picks among its free models.
+    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", "openrouter/free"),
+}
+
+
+class HostedModel:
+    kind = "cloud"
+
+    def __init__(self, provider: str, model: str, base_url: str, api_key: str | None,
+                 key_env: str, timeout_sec: float = 60.0, http: httpx.Client | None = None):
+        self.provider = provider
+        self.name = f"{provider}:{model}"
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.key_env = key_env
+        self._http = http or httpx.Client(timeout=timeout_sec)
+
+    def start(self, system: str, tools: list[ToolSpec]) -> "HostedConversation":
+        if not self.api_key:
+            raise ModelUnavailable(f"no {self.provider} key on this machine (set {self.key_env})")
+        return HostedConversation(self, system, tools)
+
+
+class HostedConversation:
+    def __init__(self, model: HostedModel, system: str, tools: list[ToolSpec]):
+        self._model = model
+        self._tools = [
+            {"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.input_schema}}
+            for t in tools
+        ]
+        self._messages: list[dict] = [{"role": "system", "content": system}]
+
+    def send(self, text: str) -> Turn:
+        self._messages.append({"role": "user", "content": text})
+        return self._call()
+
+    def send_tool_results(self, results: list[ToolResult]) -> Turn:
+        for r in results:
+            self._messages.append({"role": "tool", "tool_call_id": r.call_id, "content": r.content})
+        return self._call()
+
+    def _call(self) -> Turn:
+        m = self._model
+        payload: dict = {"model": m.model, "messages": self._messages}
+        if self._tools:
+            payload["tools"] = self._tools
+            payload["tool_choice"] = "auto"
+        try:
+            response = m._http.post(f"{m.base_url}/chat/completions", json=payload,
+                                    headers={"Authorization": f"Bearer {m.api_key}"})
+        except httpx.HTTPError as exc:
+            raise ModelUnavailable(f"{m.provider} unreachable (no network?)") from exc
+        status = response.status_code
+        if status in (401, 403):
+            raise ModelUnavailable(f"{m.provider} rejected the key in {m.key_env}")
+        if status == 429:
+            raise ModelUnavailable(f"{m.provider} free-tier limit reached; try again later")
+        if status >= 400:
+            # A free model that cannot take tools, or one that was withdrawn,
+            # answers 400/404. The next model in the chain should take over
+            # rather than the brief failing on a service we do not control.
+            raise ModelUnavailable(f"{m.provider} error {status}: {response.text[:200]}")
+
+        choice = (response.json().get("choices") or [{}])[0]
+        message = choice.get("message") or {}
+        raw_calls = message.get("tool_calls") or []
+        kept = {"role": "assistant", "content": message.get("content") or ""}
+        if raw_calls:
+            kept["tool_calls"] = raw_calls
+        self._messages.append(kept)
+
+        calls = []
+        for raw in raw_calls:
+            fn = raw.get("function") or {}
+            args = fn.get("arguments") or "{}"
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    args = {}
+            calls.append(ToolCall(raw.get("id") or f"call_{len(calls)}", fn.get("name", ""), args if isinstance(args, dict) else {}))
+        if calls:
+            stop = "tool_use"
+        elif choice.get("finish_reason") == "length":
+            stop = "max_tokens"
+        else:
+            stop = "done"
+        return Turn(text=(message.get("content") or "").strip(), tool_calls=calls, stop=stop, model=m.name)
+
+
+def hosted_model_from_config(config) -> HostedModel | None:
+    provider = (config.hosted_provider or "").strip().lower()
+    if not provider:
+        return None
+    if provider == "custom":
+        if not config.hosted_url:
+            raise ValueError("DRISHTI_HOSTED_PROVIDER=custom needs DRISHTI_HOSTED_URL")
+        base_url, key_env, default_model = config.hosted_url, "DRISHTI_HOSTED_API_KEY", None
+    elif provider in HOSTED_PROVIDERS:
+        base_url, key_env, default_model = HOSTED_PROVIDERS[provider]
+    else:
+        raise ValueError(f"unknown DRISHTI_HOSTED_PROVIDER {provider!r}: use {', '.join(HOSTED_PROVIDERS)} or custom")
+    model = config.hosted_model or default_model
+    if not model:
+        raise ValueError(f"set DRISHTI_HOSTED_MODEL to a model {provider} currently offers")
+    return HostedModel(provider, model, base_url, os.environ.get(key_env), key_env,
+                       timeout_sec=config.cloud_timeout_sec)
+
+
 # --- Choosing a model -------------------------------------------------------------
 
 class ModelChain:
@@ -287,11 +416,18 @@ class ModelChain:
 
 
 def build_chain(config) -> ModelChain:
-    """Claude first, the local model as the offline fallback."""
-    return ModelChain(
-        [
-            ClaudeModel(config.cloud_model, effort=config.cloud_effort, timeout_sec=config.cloud_timeout_sec),
-            OllamaModel(config.local_model, base_url=config.local_url, timeout_sec=config.local_timeout_sec),
-        ],
-        retry_after_sec=config.retry_after_sec,
-    )
+    """Best model first, always ending with the local one.
+
+    Claude, when this machine has credentials for it; then a hosted free-tier
+    model, when one is configured; then the local model, which needs no key
+    and no internet. A model without its key fails instantly and is skipped,
+    so a post can run any subset of these.
+    """
+    models: list[ChatModel] = [
+        ClaudeModel(config.cloud_model, effort=config.cloud_effort, timeout_sec=config.cloud_timeout_sec),
+    ]
+    hosted = hosted_model_from_config(config)
+    if hosted is not None:
+        models.append(hosted)
+    models.append(OllamaModel(config.local_model, base_url=config.local_url, timeout_sec=config.local_timeout_sec))
+    return ModelChain(models, retry_after_sec=config.retry_after_sec)

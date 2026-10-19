@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Bot, Check, ChevronDown, ChevronRight, CloudOff, Loader2, Send, Sparkles, X } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronRight, Cloud, CloudOff, FileText, Loader2, Send, Sparkles, X } from "lucide-react";
 import { Panel } from "../components/common/Panel";
 import { EmptyState } from "../components/common/States";
-import { agentApi, type AgentStatus, type Brief, type CopilotReply, type Proposal } from "../api/agent";
+import { agentApi, type AgentStatus, type Brief, type CopilotReply, type ModelKind, type Proposal } from "../api/agent";
 import type { SessionUser } from "../api/auth";
 import { ApiError } from "../api/client";
 import { eventMeta } from "../lib/eventMeta";
@@ -27,20 +27,23 @@ function errorText(err: unknown, fallback: string) {
   return err instanceof ApiError || err instanceof Error ? err.message : fallback;
 }
 
-/** Which model wrote something: the cloud model, or the local one that
- * keeps working offline. Shown on every answer so operators know. */
-function ModelBadge({ model }: { model: string | null }) {
-  if (!model) return null;
-  const local = !model.startsWith("claude");
+const KIND_STYLE: Record<ModelKind, { label: (model: string) => string; className: string; icon: typeof Sparkles }> = {
+  claude: { label: () => "Claude", className: "bg-accent-blue/15 text-accent-blue", icon: Sparkles },
+  cloud: { label: (m) => `Cloud · ${m.split(":")[0]}`, className: "bg-accent-cyan/15 text-accent-cyan", icon: Cloud },
+  local: { label: () => "Local model", className: "bg-accent-amber/15 text-accent-amber", icon: CloudOff },
+  template: { label: () => "Rules, no AI", className: "bg-bg-4 text-text-secondary", icon: FileText },
+};
+
+/** Which model wrote something: Claude, a hosted cloud model, the local one
+ * that keeps working offline, or the rules-based fallback. Shown on every
+ * answer so operators know what they are reading. */
+function ModelBadge({ model, kind }: { model: string; kind: ModelKind }) {
+  const style = KIND_STYLE[kind] ?? KIND_STYLE.cloud;
+  const Icon = style.icon;
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-[1px] text-[10px] font-semibold ${
-        local ? "bg-accent-amber/15 text-accent-amber" : "bg-accent-blue/15 text-accent-blue"
-      }`}
-      title={model}
-    >
-      {local ? <CloudOff size={10} /> : <Sparkles size={10} />}
-      {local ? "Local model" : "Claude"}
+    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-[1px] text-[10px] font-semibold ${style.className}`} title={model}>
+      <Icon size={10} />
+      {style.label(model)}
     </span>
   );
 }
@@ -136,17 +139,14 @@ function BriefCard({
           <span className="font-mono text-[11px] text-text-tertiary">from {brief.incident.started ?? "—"}</span>
         </div>
         <div className="flex items-center gap-2">
-          <ModelBadge model={brief.model} />
+          <ModelBadge model={brief.model} kind={brief.model_kind} />
           <span className="font-mono text-[11px] text-text-tertiary">{clock(brief.created_at)}</span>
         </div>
       </div>
       <div className="flex flex-col gap-3 px-4 py-3">
-        {brief.status === "ready" ? (
-          <BriefText text={brief.text || "The analyst returned no text."} />
-        ) : (
-          <div className="rounded border border-accent-amber/35 bg-accent-amber/10 px-3 py-2 text-[12.5px] text-accent-amber">
-            {brief.text}. The alarm itself was raised as normal.
-          </div>
+        <BriefText text={brief.text} />
+        {brief.status === "template" && brief.note && (
+          <div className="text-[11px] text-text-tertiary">Written from rules. {brief.note}.</div>
         )}
         {proposals.length > 0 && (
           <div className="flex flex-col gap-2">
@@ -232,7 +232,7 @@ function Copilot({
               {x.reply && (
                 <div className="flex flex-col gap-2 rounded border border-border-1 bg-bg-1 px-3 py-2">
                   <div className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-text-primary">{x.reply.answer}</div>
-                  <ModelBadge model={x.reply.model} />
+                  <ModelBadge model={x.reply.model} kind={x.reply.model_kind} />
                   {x.reply.proposals.map((p) => (
                     <ProposalRow key={p.proposal_id} proposal={latest(p)} canDecide={canDecide} busy={busyId === p.proposal_id} onDecide={onDecide} />
                   ))}
@@ -329,9 +329,9 @@ export function Analyst({ user }: { user?: SessionUser | null }) {
           <div className="flex items-center gap-2 rounded border border-border-1 bg-bg-2 px-3 py-2 text-[11.5px]">
             <span className={`h-[7px] w-[7px] rounded-full ${enabled ? "bg-accent-green" : "bg-text-disabled"}`} />
             {enabled ? (
-              <span className="text-text-secondary">
-                On · <span className="font-mono">{status.cloud_model}</span>, offline:{" "}
-                <span className="font-mono">{status.local_model}</span>
+              <span className="text-text-secondary" title="Briefs try each model in turn, then fall back to rules">
+                On · {status.models.map((m) => <span key={m.name} className="font-mono">{m.name} → </span>)}
+                <span className="font-mono">rules</span>
               </span>
             ) : (
               <span className="text-text-secondary">Off</span>

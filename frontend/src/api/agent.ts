@@ -1,9 +1,11 @@
 import { api } from "./client";
 
+export type ModelKind = "claude" | "cloud" | "local" | "template";
+
 export interface AgentStatus {
   enabled: boolean;
-  cloud_model: string;
-  local_model: string;
+  /** In the order briefs try them; a rules-based brief follows if all fail. */
+  models: { name: string; kind: ModelKind }[];
   message: string | null;
 }
 
@@ -23,9 +25,12 @@ export interface Brief {
   incident_id: string;
   camera_id: string;
   camera_name: string;
-  status: "ready" | "failed";
+  /** "template": no AI model answered, so it was written from rules; `note` says why. */
+  status: "ready" | "template";
   text: string;
-  model: string | null;
+  model: string;
+  model_kind: ModelKind;
+  note: string | null;
   created_at: number;
   incident: {
     started?: string;
@@ -54,6 +59,7 @@ export interface Proposal {
 export interface CopilotReply {
   answer: string;
   model: string;
+  model_kind: ModelKind;
   proposals: Proposal[];
 }
 
