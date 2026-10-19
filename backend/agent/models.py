@@ -95,7 +95,13 @@ class ClaudeModel:
 
             # One retry, not the SDK's default two: when the post is offline
             # the local model should take over within seconds.
-            self._client = anthropic.Anthropic(timeout=self.timeout_sec, max_retries=1)
+            client = anthropic.Anthropic(timeout=self.timeout_sec, max_retries=1)
+            # With nothing configured the SDK only fails once a request is
+            # built, and with a TypeError rather than an API error. Checking
+            # here turns "no key on this machine" into an ordinary fallback.
+            if not any(getattr(client, attr, None) for attr in ("api_key", "auth_token", "credentials")):
+                raise ModelUnavailable("no Claude credentials on this machine (set ANTHROPIC_API_KEY)")
+            self._client = client
         return self._client
 
     def start(self, system: str, tools: list[ToolSpec]) -> "ClaudeConversation":

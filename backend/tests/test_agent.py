@@ -279,6 +279,16 @@ def test_claude_refusal_and_haiku_without_fallbacks():
     assert "fallbacks" not in client.requests[0]
 
 
+def test_claude_without_credentials_falls_back_instead_of_crashing(monkeypatch):
+    # With no key the real SDK raises a TypeError when the request is built;
+    # it has to become an ordinary "unavailable" so the local model takes over.
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **_: SimpleNamespace(api_key=None, auth_token=None, credentials=None))
+    cloud = ClaudeModel("claude-opus-5-5")
+    local = ScriptedModel("local", [answer("offline brief", model="local")])
+    run, used = ModelChain([cloud, local]).run(lambda m: run_agent(m, "t", "s", [], "task"))
+    assert used is local and run.text == "offline brief"
+
+
 def test_claude_network_failure_means_unavailable_but_bad_request_does_not():
     request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
     offline = ClaudeModel("claude-opus-5-5", client=FakeClaudeClient([anthropic.APIConnectionError(request=request)]))
@@ -357,6 +367,14 @@ def test_brief_failure_is_recorded_when_no_model_answers():
     incident = service._grouper.add(event("ZONE_ENTRY", "CRITICAL", 1.0))
     brief = service.brief_incident(incident)
     assert brief.status == "failed" and "offline" in brief.text
+    assert store.recorded[0]["type"] == "AGENT_BRIEF_FAILED"
+
+
+def test_unexpected_errors_still_leave_a_failed_brief():
+    service, store = make_service([RuntimeError("bug")])
+    brief = service.brief_incident(service._grouper.add(event("ZONE_ENTRY", "CRITICAL", 1.0)))
+    assert brief.status == "failed" and "internal error" in brief.text
+    assert service.briefs()[0]["brief_id"] == brief.brief_id
     assert store.recorded[0]["type"] == "AGENT_BRIEF_FAILED"
 
 

@@ -42,6 +42,14 @@ const REGISTRY: Record<string, EventMeta> = {
   // says which of the two actually happened.
   TARGET_BEHAVIOR_ALERT: { label: "Behaviour Escalation", severity: "red", icon: ShieldAlert },
   LOW_LIGHT: { label: "Low-Light Detected", severity: "blue", icon: Sparkles },
+  // AI analyst records (backend/agent). Always informational: the analyst
+  // explains and proposes, it never raises an alarm.
+  AGENT_BRIEF: { label: "AI Brief", severity: "blue", icon: Sparkles },
+  AGENT_BRIEF_FAILED: { label: "AI Brief Unavailable", severity: "neutral", icon: Sparkles },
+  AGENT_ANSWER: { label: "AI Copilot Answer", severity: "blue", icon: Sparkles },
+  AGENT_PROPOSAL: { label: "AI Proposal", severity: "blue", icon: Sparkles },
+  AGENT_APPROVED: { label: "AI Proposal Approved", severity: "green", icon: Sparkles },
+  AGENT_REJECTED: { label: "AI Proposal Rejected", severity: "neutral", icon: Sparkles },
 };
 
 const FALLBACK: EventMeta = { label: "Event", severity: "neutral", icon: AlertTriangle };

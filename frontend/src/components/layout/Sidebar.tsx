@@ -1,5 +1,5 @@
 import {
-  Activity, Car, Eye, LayoutDashboard, ListChecks, Moon, Radio, Scan, ScrollText,
+  Activity, Bot, Car, Eye, LayoutDashboard, ListChecks, Moon, Radio, Scan, ScrollText,
   Search, Server, Settings, ShieldAlert, Siren, Smartphone, Users,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -12,6 +12,7 @@ import { SessionFooter } from "./AppLayout";
 const primaryLinks = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/live", label: "Live Monitor", icon: Radio },
+  { to: "/analyst", label: "AI Analyst", icon: Bot },
   { to: "/devices", label: "Connect Device", icon: Smartphone },
   { to: "/analysis", label: "Forensic Analysis", icon: Scan },
   { to: "/jobs", label: "Jobs", icon: ListChecks },

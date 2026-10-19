@@ -26,6 +26,10 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from backend.agent.models import build_chain
+from backend.agent.service import AgentService
+from backend.api.agent import router as agent_router
+from backend.api.agent import set_service as set_agent_service
 from backend.api.auth import _token_from, decode_token, has_users, is_public_path
 from backend.api.auth_routes import router as auth_router
 from backend.api.jobs import job_manager
@@ -43,7 +47,7 @@ from backend.api.storage import (
 from backend.core.events import severity_for, should_alarm
 from backend.config import (
     AnprConfig, BehaviorConfig, EVIDENCE_DIR, LowLightConfig, OUTPUTS_DIR, PersonIDConfig,
-    SFACE_MODEL_PATH, UPLOADS_DIR, YUNET_MODEL_PATH, YOLO_MODEL_PATH, ZoneConfig, detect_device,
+    SFACE_MODEL_PATH, UPLOADS_DIR, YUNET_MODEL_PATH, YOLO_MODEL_PATH, ZoneConfig, detect_device, get_config,
 )
 from backend.live.camera_manager import camera_manager, seed_demo_cameras
 from backend.core.video import VideoReader, extract_frame
@@ -70,7 +74,20 @@ async def lifespan(app: FastAPI):
     # Camera health is only useful if something is watching it continuously;
     # this is what turns a dropout into a CAMERA_OFFLINE event.
     camera_manager.start_monitor()
+    # The AI analyst only reads events and proposes actions, so it starts
+    # after the cameras and stops before them; detection never waits on it.
+    agent_service = None
+    agent_config = get_config().agent
+    if agent_config.enabled:
+        agent_service = AgentService(agent_config, build_chain(agent_config),
+                                     store=camera_manager.store, manager=camera_manager)
+        agent_service.start()
+        set_agent_service(agent_service)
+        logger.info("AI analyst on: %s, falling back to local %s", agent_config.cloud_model, agent_config.local_model)
     yield
+    if agent_service is not None:
+        set_agent_service(None)
+        agent_service.stop()
     camera_manager.stop_monitor()
     # Capture threads are daemons, but stopping them explicitly releases the
     # captures instead of leaving them to be torn down mid-read.
@@ -80,6 +97,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Drishti API", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(live_router)
+app.include_router(agent_router)
 
 
 @app.middleware("http")

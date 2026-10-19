@@ -145,17 +145,23 @@ class AgentService:
     def brief_incident(self, incident: Incident) -> Brief:
         with self._lock:
             snapshot = incident.for_agent()
+        failure = None
         try:
             run, _ = self.chain.run(lambda model: run_supervisor(
                 model, snapshot, self.source, self.manager, max_steps=self.config.max_steps))
         except ModelUnavailable as exc:
+            failure = f"AI analyst unavailable: {exc}"
+        except Exception:  # an operator must see that a brief failed, not just get nothing
+            logger.exception("brief failed for incident %s", incident.incident_id)
+            failure = "AI brief failed with an internal error (see the server log)"
+        if failure is not None:
             brief = Brief(
                 brief_id=uuid.uuid4().hex[:10], incident_id=incident.incident_id,
                 camera_id=incident.camera_id, camera_name=incident.camera_name, status="failed",
-                text=f"AI analyst unavailable: {exc}", model=None, created_at=self.clock(), incident=snapshot,
+                text=failure, model=None, created_at=self.clock(), incident=snapshot,
             )
-            self.audit.record("AGENT_BRIEF_FAILED", "AI brief could not be written; no model was available.",
-                              {"incident_id": incident.incident_id, "error": str(exc)},
+            self.audit.record("AGENT_BRIEF_FAILED", "AI brief could not be written.",
+                              {"incident_id": incident.incident_id, "error": failure},
                               incident.camera_id, incident.camera_name)
         else:
             proposals = self._keep_proposals(run, "incident", incident.incident_id)

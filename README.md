@@ -82,8 +82,26 @@ Every threshold is in `ZoneConfig` (`backend/config.py`):
 | `approach_cooldown_sec` | 20.0 | Minimum gap before the same track warns again. |
 
 ```bash
-pytest backend/tests -q      # 322 tests
+pytest backend/tests -q      # 329 tests
 ```
+
+### AI Analyst
+
+Turns alarms into short incident briefs, answers operator questions, and
+proposes actions that wait for an operator's approval. It never controls the
+siren or cameras, and every step it takes goes into the Audit Log. Off by
+default:
+
+```bash
+set DRISHTI_AGENTS=1               # Windows; export DRISHTI_AGENTS=1 elsewhere
+set ANTHROPIC_API_KEY=...          # Claude, used whenever it is reachable
+ollama pull qwen2.5:3b             # local model, takes over when offline
+python scripts/serve.py
+```
+
+`DRISHTI_AGENT_MODEL` and `DRISHTI_LOCAL_MODEL` choose other models. With
+neither model reachable, alarms still work and the AI Analyst page says why
+the brief is missing.
 
 ### Measuring accuracy
 
