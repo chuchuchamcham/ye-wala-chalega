@@ -12,9 +12,9 @@ export function AppLayout({
   onSignedOut?: () => void;
 }) {
   return (
-    <div className="grid min-h-screen grid-cols-[248px_1fr] max-[1366px]:grid-cols-[220px_1fr]">
+    <div className="flex min-h-screen">
       <Sidebar user={user} onSignedOut={onSignedOut} />
-      <div className="flex min-w-0 flex-col">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>
   );
 }
@@ -29,7 +29,7 @@ export function SessionFooter({
 }) {
   if (!user) return null;
   return (
-    <div className="mx-5 mt-4 border-t border-border-1 pt-4">
+    <div className="border-t border-border-1 px-1 pt-3">
       <div className="truncate text-[12px] font-semibold text-text-primary">{user.username}</div>
       <div className="mb-2 text-[11px] capitalize text-text-tertiary">{user.role}</div>
       <button
@@ -54,10 +54,10 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-10 flex h-[60px] shrink-0 items-center justify-between border-b border-border-1 bg-bg-1/70 px-6 backdrop-blur-md">
+    <header className="sticky top-0 z-10 flex h-[68px] shrink-0 items-center justify-between border-b border-border-1 bg-bg-1/90 px-6 backdrop-blur-md">
       <div className="flex flex-col gap-0.5">
-        <h1 className="text-[16px] font-semibold tracking-tight text-text-primary">{title}</h1>
-        {subtitle && <p className="text-[11.5px] text-text-tertiary">{subtitle}</p>}
+        <h1 className="text-[18px] font-semibold tracking-tight text-text-primary">{title}</h1>
+        {subtitle && <p className="text-[12px] text-text-tertiary">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </header>

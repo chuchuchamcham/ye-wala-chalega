@@ -1,7 +1,8 @@
 import {
-  Activity, Bot, Car, Eye, LayoutDashboard, ListChecks, Map as MapIcon, Moon, Radio, RadioTower, Scan, ScanSearch, ScrollText,
+  Activity, Bot, Car, ChevronsLeft, ChevronsRight, Eye, LayoutDashboard, ListChecks, Map as MapIcon, Moon, Radio, RadioTower, Scan, ScanSearch, ScrollText,
   Search, Server, Settings, ShieldAlert, Siren, Smartphone, Users,
 } from "lucide-react";
+import { useState, type MouseEvent } from "react";
 import { NavLink } from "react-router-dom";
 import type { SessionUser } from "../../api/auth";
 import { SessionFooter } from "./AppLayout";
@@ -50,72 +51,129 @@ const systemLinks = [
 // the post and must not depend on the dashboard being built or open.
 const SIREN_URL = "/api/live/siren";
 
-function NavGroup({ links }: { links: typeof primaryLinks }) {
+function NavItem({ to, label, icon: Icon, end, expanded }: (typeof primaryLinks)[number] & { expanded: boolean }) {
   return (
-    <nav className="flex flex-col gap-px px-3">
-      {links.map(({ to, label, icon: Icon, end }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
-          className={({ isActive }) =>
-            `group relative flex items-center gap-3 rounded-lg px-3 py-[8px] text-[13px] transition-colors ${
-              isActive
-                ? "bg-accent-blue/[0.09] text-text-primary shadow-[inset_0_0_0_1px_rgba(45,212,191,0.18)] before:absolute before:-left-3 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r before:bg-accent-blue before:shadow-[0_0_10px_var(--color-accent-blue)] [&>svg]:text-accent-blue"
-                : "text-text-secondary hover:bg-bg-3/70 hover:text-text-primary"
-            }`
-          }
-        >
-          <Icon size={16} strokeWidth={1.75} className="shrink-0" />
-          <span className="truncate">{label}</span>
-        </NavLink>
-      ))}
-    </nav>
+    <NavLink
+      to={to}
+      end={end}
+      data-tip={label}
+      className={({ isActive }) =>
+        `relative flex h-10 shrink-0 items-center gap-3 rounded-lg text-[13px] transition-colors ${expanded ? "px-3" : "w-10 justify-center"} ${
+          isActive ? "bg-bg-3 text-text-primary" : "text-text-tertiary hover:bg-bg-3/60 hover:text-text-primary"
+        }`
+      }
+    >
+      <Icon size={18} strokeWidth={1.75} className="shrink-0" />
+      {expanded && <span className="truncate">{label}</span>}
+    </NavLink>
   );
 }
 
+const EXPANDED_KEY = "drishti.nav.expanded";
+
+function readExpanded(): boolean {
+  try {
+    return localStorage.getItem(EXPANDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Icon rail by default, so the map and cameras get the width. Expanding it
+ * shows labels and the per-module shortcuts into Forensic Analysis. */
 export function Sidebar({ user, onSignedOut }: { user?: SessionUser | null; onSignedOut?: () => void }) {
+  const [expanded, setExpanded] = useState(readExpanded);
+
+  function toggle() {
+    setExpanded((v) => {
+      try {
+        localStorage.setItem(EXPANDED_KEY, v ? "0" : "1");
+      } catch {
+        /* preference only */
+      }
+      return !v;
+    });
+  }
+
+  const Toggle = expanded ? ChevronsLeft : ChevronsRight;
+
+  // One fixed-position label for the collapsed rail: the rail scrolls on
+  // short screens, which would clip a label positioned inside it.
+  const [tip, setTip] = useState<{ text: string; top: number } | null>(null);
+  function hover(e: MouseEvent<HTMLElement>) {
+    if (expanded) return;
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-tip]");
+    if (!el) return setTip(null);
+    const box = el.getBoundingClientRect();
+    setTip({ text: el.dataset.tip ?? "", top: box.top + box.height / 2 });
+  }
+
   return (
-    <aside className="sticky top-0 h-screen w-[248px] shrink-0 overflow-y-auto border-r border-border-1 bg-bg-0/80 py-5 backdrop-blur max-[1366px]:w-[220px]">
-      <div className="mb-5 flex items-center gap-3 px-5">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-accent-blue/30 bg-accent-blue/10 shadow-[0_0_18px_-4px_var(--color-accent-blue)]">
-          <Eye size={18} strokeWidth={1.75} className="text-accent-blue" />
-        </div>
-        <div className="min-w-0">
-          <div className="text-[15px] font-semibold tracking-[0.08em] text-text-primary">DRISHTI</div>
-          <div className="truncate text-[11px] text-text-tertiary">Video intelligence</div>
-        </div>
+    <aside
+      onMouseOver={hover}
+      onMouseLeave={() => setTip(null)}
+      onScroll={() => setTip(null)}
+      className={`sticky top-0 flex h-screen shrink-0 flex-col overflow-y-auto border-r border-border-1 bg-bg-0 py-4 [scrollbar-width:none] ${
+        expanded ? "w-[232px] px-3" : "w-16 items-center"
+      }`}
+    >
+      {tip && !expanded && (
+        <span
+          className="pointer-events-none fixed left-[68px] z-50 -translate-y-1/2 whitespace-nowrap rounded-md border border-border-2 bg-bg-3 px-2 py-1 text-[12px] text-text-primary shadow-lg"
+          style={{ top: tip.top }}
+        >
+          {tip.text}
+        </span>
+      )}
+      <div className={`mb-5 flex items-center gap-3 ${expanded ? "px-1" : ""}`}>
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-text-primary text-[15px] font-bold text-bg-0">D</div>
+        {expanded && (
+          <div className="min-w-0">
+            <div className="text-[14px] font-semibold text-text-primary">Drishti</div>
+            <div className="truncate text-[11px] text-text-tertiary">Video intelligence</div>
+          </div>
+        )}
       </div>
 
-      <NavGroup links={primaryLinks} />
+      <nav className="flex flex-col gap-1">
+        {primaryLinks.map((l) => <NavItem key={l.to} {...l} expanded={expanded} />)}
+      </nav>
 
-      <div className="px-6 pb-1.5 pt-5 text-[10.5px] font-medium uppercase tracking-[0.12em] text-text-tertiary">Analysis modules</div>
-      <NavGroup links={moduleLinks} />
+      {expanded && (
+        <>
+          <div className="px-3 pb-1.5 pt-5 text-[11px] text-text-tertiary">Analysis modules</div>
+          <nav className="flex flex-col gap-1">
+            {moduleLinks.map((l) => <NavItem key={l.to} {...l} expanded />)}
+          </nav>
+        </>
+      )}
 
-      <div className="px-6 pb-1.5 pt-5 text-[10.5px] font-medium uppercase tracking-[0.12em] text-text-tertiary">System</div>
-      <NavGroup links={systemLinks} />
-
-      <div className="px-3 pt-1">
+      <div className={`my-3 h-px bg-border-1 ${expanded ? "" : "w-8"}`} />
+      <nav className="flex flex-col gap-1">
+        {systemLinks.map((l) => <NavItem key={l.to} {...l} expanded={expanded} />)}
         <a
           href={SIREN_URL}
+          data-tip="Siren Panel"
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-3 rounded-lg px-3 py-[8px] text-[13px] text-text-secondary hover:bg-bg-3/70 hover:text-text-primary"
+          className={`relative flex h-10 shrink-0 items-center gap-3 rounded-lg text-[13px] text-text-tertiary hover:bg-bg-3/60 hover:text-text-primary ${expanded ? "px-3" : "w-10 justify-center"}`}
         >
-          <Siren size={16} strokeWidth={1.75} className="shrink-0" />
-          <span className="truncate">Siren Panel</span>
+          <Siren size={18} strokeWidth={1.75} className="shrink-0" />
+          {expanded && <span className="truncate">Siren Panel</span>}
         </a>
-      </div>
+      </nav>
 
-      <div className="mx-5 mt-5 flex items-center gap-2 rounded-lg border border-border-1 bg-bg-2/60 px-3 py-2 text-[11.5px] text-text-secondary">
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-green opacity-50" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-green" />
-        </span>
-        System online
+      <div className="mt-auto flex flex-col gap-2 pt-4">
+        {expanded && <SessionFooter user={user} onSignedOut={onSignedOut} />}
+        <button
+          onClick={toggle}
+          aria-label={expanded ? "Collapse navigation" : "Expand navigation"}
+          className={`flex h-9 items-center gap-2 rounded-lg text-[12px] text-text-tertiary hover:bg-bg-3/60 hover:text-text-primary ${expanded ? "px-3" : "w-10 justify-center"}`}
+        >
+          <Toggle size={16} />
+          {expanded && "Collapse"}
+        </button>
       </div>
-
-      <SessionFooter user={user} onSignedOut={onSignedOut} />
     </aside>
   );
 }

@@ -1,54 +1,49 @@
 @import "tailwindcss";
 
-/* Drishti design tokens - teal operations-center theme.
-   Near-black surfaces with a teal cast, one teal accent for "active/primary",
-   and colour otherwise reserved for meaning: red=threat/target, amber=warning,
-   green=healthy. The "accent-blue" name is kept so every page picks up the
-   teal accent without touching call sites. */
+/* Drishti design tokens - charcoal operations-center theme.
+   Neutral charcoal surfaces, white for primary text and active navigation,
+   one blue accent for "information/active", and otherwise colour only for
+   meaning: red=threat/alarm, amber=warning, green=healthy. */
 @theme {
   --font-sans: Inter, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
 
-  --color-bg-0: #030707;
-  --color-bg-1: #050b0b;
-  --color-bg-2: #091212;
-  --color-bg-3: #0e1a1a;
-  --color-bg-4: #142424;
-  --color-border-1: #142826;
-  --color-border-2: #1c3633;
-  --color-border-strong: #2a4d48;
+  --color-bg-0: #0c0c0d;
+  --color-bg-1: #111112;
+  --color-bg-2: #1a1a1b;
+  --color-bg-3: #222224;
+  --color-bg-4: #2a2a2d;
+  --color-border-1: #262628;
+  --color-border-2: #313134;
+  --color-border-strong: #424246;
 
-  --color-text-primary: #e8f3f1;
-  --color-text-secondary: #94aca8;
-  --color-text-tertiary: #5f7773;
-  --color-text-disabled: #3f524f;
+  --color-text-primary: #ededee;
+  --color-text-secondary: #a3a3a8;
+  --color-text-tertiary: #75757b;
+  --color-text-disabled: #4f4f54;
 
-  --color-accent-blue: #2dd4bf;
+  --color-accent-blue: #5b9cf8;
   --color-accent-cyan: #5eead4;
-  --color-accent-red: #f2545b;
+  --color-accent-red: #ef4444;
   --color-accent-amber: #f5b041;
   --color-accent-green: #34d399;
   --color-accent-magenta: #c084fc;
   --color-accent-orange: #fb923c;
 
-  --color-accent-hover: #5eead4;
-  --color-on-accent: #032421;
+  --color-accent-hover: #7cb1fa;
+  --color-on-accent: #06152b;
 }
 
 html, body, #root { height: 100%; }
 body {
-  background:
-    radial-gradient(1200px 600px at 60% -10%, rgba(45, 212, 191, 0.07), transparent 60%),
-    radial-gradient(800px 500px at 0% 100%, rgba(45, 212, 191, 0.035), transparent 60%),
-    var(--color-bg-1);
-  background-attachment: fixed;
+  background: var(--color-bg-1);
   color: var(--color-text-primary);
   font-family: var(--font-sans);
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
 }
 
-::selection { background: rgba(45, 212, 191, 0.3); }
+::selection { background: rgba(91, 156, 248, 0.35); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -57,13 +52,8 @@ body {
 
 .tabular-nums { font-variant-numeric: tabular-nums; }
 
-/* Glass panel: a faint top-lit gradient and a 1px inner highlight, so cards
-   read as layered instances rather than flat boxes. */
-.surface {
-  background: linear-gradient(180deg, rgba(20, 40, 38, 0.55) 0%, rgba(9, 18, 18, 0.85) 100%);
-  box-shadow: inset 0 1px 0 rgba(94, 234, 212, 0.06), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(6px);
-}
+/* Flat panel surface shared by Panel, MetricCard and friends. */
+.surface { background: var(--color-bg-2); }
 
 @keyframes bw-shimmer {
   0% { background-position: -200px 0; }

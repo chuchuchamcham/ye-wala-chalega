@@ -18,15 +18,15 @@ export function Panel({
   return (
     <div className={`surface rounded-xl border border-border-1 ${className}`}>
       {title && (
-        <div className="flex items-center justify-between border-b border-border-1/80 px-5 py-3.5">
-          <h2 className="flex items-center gap-2 text-[13px] font-semibold text-text-primary"><span className="h-3 w-[3px] rounded-full bg-accent-blue/80" />{title}</h2>
+        <div className="flex items-center justify-between px-5 pb-1 pt-4">
+          <h2 className="text-[14px] font-semibold text-text-primary">{title}</h2>
           <div className="flex items-center gap-2">
             {meta && <span className="text-[11px] text-text-tertiary">{meta}</span>}
             {actions}
           </div>
         </div>
       )}
-      <div className={tight ? "p-3" : "p-5"}>{children}</div>
+      <div className={tight ? "p-3" : title ? "px-5 pb-5 pt-3" : "p-5"}>{children}</div>
     </div>
   );
 }
