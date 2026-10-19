@@ -5,20 +5,25 @@ the results back, and stop when it answers or runs out of steps. The loop is
 written here rather than taken from a provider's SDK because the same agent
 must run on Claude or on the local model.
 
-The Supervisor briefs an incident. When the subject may have moved, it asks
-the Pursuit specialist, which runs as its own agent with its own tools and
-reports back in a few lines. Specialists are added the same way.
+The Supervisor adds judgment to a brief whose facts the rules have already
+written: whether the incident links to activity on other cameras, and the
+next step. When it needs more than it was given, it asks the Pursuit
+specialist, which runs as its own agent with its own tools and reports back
+in a few lines. Specialists are added the same way.
 """
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 
 from backend.agent.models import ChatModel, ModelUnavailable, ToolResult, ToolSpec
+from backend.agent.template import template_facts, template_next_step, template_other_cameras
 from backend.agent.tools import (
     EventSource,
     ProposalCollector,
     list_cameras_tool,
+    other_camera_activity,
     propose_action_tool,
     search_events_tool,
     target_sightings_tool,
@@ -30,19 +35,26 @@ DATA_RULE = (
 )
 
 SUPERVISOR_PROMPT = f"""You are the duty analyst for Drishti, the surveillance system at an Indian border post.
-The detectors have already raised the alarm and sounded the siren. Your job is to brief the operator on one incident so they can act in seconds.
+The detectors have already raised the alarm and sounded the siren. The facts (Situation, Evidence, and what other cameras saw) are already written and shown to the operator. Your job is to decide the single most useful next step.
 
-How you work:
-- Use only facts from the incident and your tools. If something is unknown, say so.
-- Check search_events for related activity on this and nearby cameras when it would change the advice.
-- If the subject may have moved to another camera, call ask_pursuit with a short question.
-- You cannot control cameras, the siren or anything else. To ask for a change, call propose_action; an operator approves or rejects it. Propose at most two actions, only ones the evidence supports.
+1. Read the facts. If another camera saw a watched person or something unusual shortly before, the next step should use that (for example, watch the camera they were heading toward). {{lookup}}
+2. If the next step needs approval (turning on analysis on a camera, sending a patrol, raising the alert level, reviewing footage), you MUST call propose_action for it. Writing it in text does not put it in front of the operator for approval. Propose at most two actions.
+
+Rules:
+- Do not restate or change the facts. Use only what you were given and what tools return; never guess what a subject is.
+- You cannot control cameras, the siren or anything else yourself.
 - {DATA_RULE}
 
-Answer with the brief only, at most 120 words, in exactly this shape:
-Situation: one or two sentences.
-Evidence: the key events with their times.
-Next step: one concrete suggestion."""
+After any tool calls, answer with exactly one line and nothing else:
+Next step: one sentence."""
+
+LOOKUP_FULL = "Use ask_pursuit or search_events only if you need more than you were given."
+LOOKUP_LEAN = "Use search_events only if you need more than you were given; usually you will not."
+
+
+def supervisor_prompt(lean: bool) -> str:
+    return SUPERVISOR_PROMPT.replace("{lookup}", LOOKUP_LEAN if lean else LOOKUP_FULL)
+
 
 PURSUIT_PROMPT = f"""You are the pursuit specialist for Drishti, the surveillance system at an Indian border post.
 Given a question about a subject in an incident, find where they were seen before and after it: which cameras, at what times, and which camera they are likely to reach next.
@@ -110,7 +122,14 @@ def run_pursuit(model: ChatModel, source: EventSource, manager, question: str, m
     return run_agent(model, "pursuit", PURSUIT_PROMPT, tools, question, max_steps)
 
 
-def run_supervisor(model: ChatModel, incident: dict, source: EventSource, manager, max_steps: int = 8) -> AgentRun:
+# A local model on a laptop CPU takes seconds per tool call, and a Pursuit
+# run repeats what the Other cameras facts already say. Lean mode keeps the
+# local brief fast: no Pursuit, at most this many tool steps.
+LEAN_MAX_STEPS = 3
+
+
+def run_supervisor(model: ChatModel, incident: dict, source: EventSource, manager, max_steps: int = 8,
+                   other_activity: list[dict] | None = None, lean: bool = False) -> AgentRun:
     collector = ProposalCollector()
     specialist_steps: list[dict] = []
 
@@ -122,27 +141,78 @@ def run_supervisor(model: ChatModel, incident: dict, source: EventSource, manage
         specialist_steps.append({"agent": "pursuit", "answer": run.text, "model": run.model})
         return run.text or "Pursuit found nothing to report."
 
-    tools = [
-        search_events_tool(source),
-        list_cameras_tool(manager),
-        ToolSpec(
-            name="ask_pursuit",
-            description="Ask the pursuit specialist where the subject was seen before or after this incident, across all cameras.",
-            input_schema={
-                "type": "object",
-                "properties": {"question": {"type": "string", "description": "A short, specific question."}},
-                "required": ["question"],
-                "additionalProperties": False,
-            },
-            handler=ask_pursuit,
-        ),
-        propose_action_tool(collector),
-    ]
-    task = "Brief the operator on this incident.\n\nIncident:\n" + json.dumps(incident, ensure_ascii=False)
-    run = run_agent(model, "supervisor", SUPERVISOR_PROMPT, tools, task, max_steps)
+    pursuit_tool = ToolSpec(
+        name="ask_pursuit",
+        description="Ask the pursuit specialist where the subject was seen before or after this incident, across all cameras.",
+        input_schema={
+            "type": "object",
+            "properties": {"question": {"type": "string", "description": "A short, specific question."}},
+            "required": ["question"],
+            "additionalProperties": False,
+        },
+        handler=ask_pursuit,
+    )
+    if lean:
+        tools = [search_events_tool(source), propose_action_tool(collector)]
+        max_steps = min(max_steps, LEAN_MAX_STEPS)
+    else:
+        tools = [search_events_tool(source), list_cameras_tool(manager), pursuit_tool, propose_action_tool(collector)]
+    situation, evidence = template_facts(incident)
+    elsewhere = template_other_cameras(other_activity if other_activity is not None else other_camera_activity(source, incident))
+    task = (
+        "Decide the next step for this incident.\n\n"
+        f"Facts already shown to the operator:\nSituation: {situation}\nEvidence: {evidence}\nOther cameras: {elsewhere}\n\n"
+        f"Incident events:\n{json.dumps(incident, ensure_ascii=False)}"
+    )
+    run = run_agent(model, "supervisor", supervisor_prompt(lean), tools, task, max_steps)
     run.steps = specialist_steps + run.steps
     run.proposals = list(collector.items)
     return run
+
+
+_JUDGMENT_LINE = re.compile(r"^[\s*_#>-]*(links?|next\s*steps?)[\s*_]*:[\s*_]*(.+?)[\s*_]*$", re.IGNORECASE)
+
+
+def parse_judgment(text: str) -> dict[str, str]:
+    """Pull the Links and Next step lines out of a model's answer. Small
+    models wrap them in markdown or add other lines; anything else is dropped,
+    so a model can never rewrite the facts by adding its own Situation line."""
+    found: dict[str, str] = {}
+    for line in text.splitlines():
+        match = _JUDGMENT_LINE.match(line)
+        if match:
+            key = "links" if match.group(1).lower().startswith("link") else "next_step"
+            found.setdefault(key, match.group(2).strip())
+    return found
+
+
+@dataclass
+class WrittenBrief:
+    text: str
+    run: AgentRun
+    # True when the model supplied the Next step or a proposal.
+    model_contributed: bool
+
+
+def write_brief(model: ChatModel, incident: dict, source: EventSource, manager, max_steps: int = 8) -> WrittenBrief:
+    """A full brief: facts from rules, judgment from the model.
+
+    Situation, Evidence and what other cameras saw always come from the
+    rules. The model decides the Next step and proposes actions; a missing
+    Next step falls back to the standard one for that kind of alarm.
+    """
+    activity = other_camera_activity(source, incident)
+    run = run_supervisor(model, incident, source, manager, max_steps=max_steps, other_activity=activity,
+                         lean=getattr(model, "kind", "") == "local")
+    next_step = parse_judgment(run.text).get("next_step") if run.stopped != "refusal" else None
+    situation, evidence = template_facts(incident)
+    text = "\n".join([
+        f"Situation: {situation}",
+        f"Evidence: {evidence}",
+        f"Other cameras: {template_other_cameras(activity)}",
+        f"Next step: {next_step or template_next_step(incident)}",
+    ])
+    return WrittenBrief(text=text, run=run, model_contributed=bool(next_step or run.proposals))
 
 
 def run_copilot(model: ChatModel, question: str, source: EventSource, manager, max_steps: int = 8) -> AgentRun:

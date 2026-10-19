@@ -193,6 +193,100 @@ def test_invalid_proposals_are_rejected_back_to_the_agent():
     assert model.sent[1][1][0].is_error
 
 
+# --- facts from rules, judgment from the model ---------------------------------------------
+
+def incident_with_history():
+    grouper = IncidentGrouper()
+    incident = grouper.add(event("ZONE_ENTRY", "CRITICAL", 1000.0, reason="Track #7 crossed into 'Restricted'"))
+    earlier = [event("TARGET_CONFIRMED", "HIGH", 700.0, camera="cam-02", track=3, reason="Track #3 matched"),
+               event("VEHICLE_DETECTED", "INFO", 800.0, camera="cam-02"),
+               event("ZONE_ENTRY", "CRITICAL", 990.0, reason="same camera")]
+    source = EventSource(store=FakeStore(earlier), clock=lambda: 1030.0)
+    return incident.for_agent(), source
+
+
+def test_other_camera_activity_lists_only_notable_events_elsewhere():
+    from backend.agent.tools import other_camera_activity
+
+    snapshot, source = incident_with_history()
+    activity = other_camera_activity(source, snapshot)
+    assert [(e["camera_id"], e["type"]) for e in activity] == [("cam-02", "TARGET_CONFIRMED")]
+
+
+def test_model_lines_are_added_to_rule_written_facts():
+    from backend.agent.agents import write_brief
+
+    snapshot, source = incident_with_history()
+    model = ScriptedModel("local", [answer(
+        "**Situation:** a vehicle entered\n- **Links:** The watched person was confirmed on CAM-02 five minutes earlier.\n"
+        "Next step: Turn on Person ID on CAM-01.", model="local")])
+    written = write_brief(model, snapshot, source, manager=None)
+    lines = written.text.split("\n")
+    assert lines[0].startswith("Situation: Restricted zone entered on CAM-01")  # rules, not "a vehicle"
+    # What other cameras saw is a rules-written fact; the model's own "Links" claim is not used.
+    assert lines[2].startswith("Other cameras: CAM-02: ") and "Watched person identified (track #3)" in lines[2]
+    assert lines[3] == "Next step: Turn on Person ID on CAM-01."
+    assert written.model_contributed
+    task = model.sent[0][1]
+    assert "Other cameras: CAM-02" in task and "Facts already shown to the operator" in task
+
+
+def test_missing_next_step_falls_back_to_the_standard_one():
+    from backend.agent.agents import write_brief
+
+    snapshot, source = incident_with_history()
+    written = write_brief(ScriptedModel("local", [answer("Links: none found.", model="local")]), snapshot, source, manager=None)
+    assert written.text.split("\n")[-1].startswith("Next step: Check the live view of CAM-01")
+    assert not written.model_contributed
+
+
+def test_a_proposal_alone_counts_as_the_model_contributing():
+    from backend.agent.agents import write_brief
+
+    snapshot, source = incident_with_history()
+    model = ScriptedModel("local", [
+        calls(("propose_action", {"action": "enable_person_id", "camera_id": "cam-01", "reason": "Watched person seen on CAM-02."})),
+        answer("ok", model="local"),
+    ])
+    written = write_brief(model, snapshot, source, manager=None)
+    assert written.model_contributed and written.run.proposals[0].action == "enable_person_id"
+
+
+def test_proposals_are_capped_deduplicated_and_null_cameras_cleaned():
+    def propose(action, camera):
+        return ("propose_action", {"action": action, "camera_id": camera, "reason": "r"})
+
+    model = ScriptedModel("fake", [
+        calls(propose("review_footage", "cam-01"), propose("review_footage", "cam-01"),
+              propose("dispatch_patrol", "null"), propose("raise_alert_level", None)),
+        answer("Next step: x."),
+    ])
+    run = run_supervisor(model, {"incident_id": "i"}, EventSource(), manager=None)
+    assert [(p.action, p.camera_id) for p in run.proposals] == [("review_footage", "cam-01"), ("dispatch_patrol", None)]
+    results = model.sent[1][1]
+    assert "Already proposed" in results[1].content
+    assert results[3].is_error and "at most 2" in results[3].content
+
+
+def test_local_models_run_lean_without_pursuit():
+    from backend.agent.agents import LEAN_MAX_STEPS, write_brief
+
+    snapshot, source = incident_with_history()
+    local = ScriptedModel("local", [calls(("ask_pursuit", {"question": "q"}))] * 5)
+    local.kind = "local"
+    written = write_brief(local, snapshot, source, manager=None)
+    assert local.starts == 1  # Pursuit was never started
+    assert written.run.stopped == "step_limit" and len(written.run.steps) == LEAN_MAX_STEPS
+    assert all(step["error"] for step in written.run.steps)  # ask_pursuit is not offered in lean mode
+
+
+def test_parse_judgment_ignores_other_lines():
+    from backend.agent.agents import parse_judgment
+
+    assert parse_judgment("Situation: x\n## Next steps: Send patrol.\nlink: CAM-02 match") == {
+        "next_step": "Send patrol.", "links": "CAM-02 match"}
+
+
 # --- choosing a model ------------------------------------------------------------------
 
 def test_chain_falls_back_when_the_first_model_is_unavailable():
@@ -451,7 +545,8 @@ def test_template_brief_leads_with_the_alarm_and_suggests_the_standard_step():
     grouper.add(event("ZONE_ENTRY", "CRITICAL", 1_700_000_005.0, reason="Track #1 entered zone"))
     grouper.add(event("LOITERING", "MEDIUM", 1_700_000_030.0, reason="Track #1 loitering 25s"))
     text = template_brief(incident.for_agent())
-    situation, evidence, step = text.split("\n")
+    situation, evidence, elsewhere, step = text.split("\n")
+    assert elsewhere == "Other cameras: Nothing notable in the last 15 minutes."
     assert situation.startswith("Situation: Restricted zone entered on CAM-01 at ")
     assert "3 related events between" in situation
     assert evidence.startswith("Evidence: ") and evidence.index("Restricted zone entered") < evidence.index("Loitering")

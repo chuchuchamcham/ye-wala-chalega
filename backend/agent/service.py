@@ -18,11 +18,11 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 
-from backend.agent.agents import AgentRun, run_copilot, run_supervisor
+from backend.agent.agents import AgentRun, run_copilot, write_brief
 from backend.agent.incidents import Incident, IncidentGrouper
 from backend.agent.models import ModelChain, ModelUnavailable
 from backend.agent.template import template_brief
-from backend.agent.tools import EventSource
+from backend.agent.tools import EventSource, other_camera_activity
 from backend.core.events import INFO
 
 logger = logging.getLogger("backend.agent.service")
@@ -150,34 +150,35 @@ class AgentService:
     def brief_incident(self, incident: Incident) -> Brief:
         with self._lock:
             snapshot = incident.for_agent()
-        run = model = None
+        written = model = None
         note = None
         try:
-            run, model = self.chain.run(lambda m: run_supervisor(
+            written, model = self.chain.run(lambda m: write_brief(
                 m, snapshot, self.source, self.manager, max_steps=self.config.max_steps))
         except ModelUnavailable as exc:
             note = f"No AI model answered: {exc}"
         except Exception:  # the operator still gets a brief; the bug goes to the log
             logger.exception("AI brief failed for incident %s", incident.incident_id)
             note = "The AI brief failed with an internal error (see the server log)"
-        if run is not None and (run.stopped == "refusal" or not run.text.strip()):
-            note = f"{run.model} gave no usable brief ({run.stopped})"
+        if written is not None and not written.model_contributed:
+            note = f"{written.run.model} gave no usable judgment ({written.run.stopped})"
 
         if note is None:
+            run = written.run
             proposals = self._keep_proposals(run, "incident", incident.incident_id)
             brief = Brief(
                 brief_id=uuid.uuid4().hex[:10], incident_id=incident.incident_id,
                 camera_id=incident.camera_id, camera_name=incident.camera_name, status="ready",
-                text=run.text, model=run.model, model_kind=getattr(model, "kind", "cloud"),
+                text=written.text, model=run.model, model_kind=getattr(model, "kind", "cloud"),
                 created_at=self.clock(), incident=snapshot, proposal_ids=[p.proposal_id for p in proposals],
             )
-            data = {"model": run.model, "stopped": run.stopped, "steps": run.steps}
-            reason = f"AI brief written by {run.model}."
+            data = {"model": run.model, "stopped": run.stopped, "steps": run.steps, "model_answer": run.text}
+            reason = f"AI judgment by {run.model} on rules-written facts."
         else:
             brief = Brief(
                 brief_id=uuid.uuid4().hex[:10], incident_id=incident.incident_id,
                 camera_id=incident.camera_id, camera_name=incident.camera_name, status="template",
-                text=template_brief(snapshot), model="template", model_kind="template",
+                text=template_brief(snapshot, other_camera_activity(self.source, snapshot)), model="template", model_kind="template",
                 created_at=self.clock(), incident=snapshot, note=note,
             )
             data = {"model": "template", "note": note}

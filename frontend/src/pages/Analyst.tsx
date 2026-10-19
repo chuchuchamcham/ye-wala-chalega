@@ -48,12 +48,12 @@ function ModelBadge({ model, kind }: { model: string; kind: ModelKind }) {
   );
 }
 
-/** "Situation:", "Evidence:", "Next step:" lines get their label in bold. */
+/** "Situation:", "Evidence:", "Links:", "Next step:" lines get their label in bold. */
 function BriefText({ text }: { text: string }) {
   return (
     <div className="flex flex-col gap-1.5 text-[13px] leading-relaxed text-text-primary">
       {text.split("\n").filter((line) => line.trim()).map((line, i) => {
-        const match = line.match(/^(Situation|Evidence|Next step):\s*(.*)$/i);
+        const match = line.match(/^(Situation|Evidence|Other cameras|Next step):\s*(.*)$/i);
         return match ? (
           <p key={i}>
             <span className="font-semibold text-text-secondary">{match[1]}: </span>
@@ -145,8 +145,10 @@ function BriefCard({
       </div>
       <div className="flex flex-col gap-3 px-4 py-3">
         <BriefText text={brief.text} />
-        {brief.status === "template" && brief.note && (
+        {brief.status === "template" && brief.note ? (
           <div className="text-[11px] text-text-tertiary">Written from rules. {brief.note}.</div>
+        ) : (
+          <div className="text-[11px] text-text-tertiary">Situation, Evidence and Other cameras come straight from the event log; the AI decides the Next step.</div>
         )}
         {proposals.length > 0 && (
           <div className="flex flex-col gap-2">

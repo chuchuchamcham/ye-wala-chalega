@@ -1,10 +1,11 @@
-"""A brief written from fixed rules, for when no AI model answers.
+"""The parts of a brief that rules write, and the whole brief when no AI can.
 
-An operator must never see an empty space where a brief should be. This
-writes the same three lines the Supervisor would, from the incident's own
-events, instantly and with no model: what happened, the key evidence, and
-the standard next step for that kind of event. It explains nothing it
-cannot read straight off the events.
+The Situation and Evidence lines of every brief come from here, read
+straight off the incident's events, because a model on a laptop CPU can
+misstate facts (calling a person "a vehicle") and a brief with wrong facts is
+worse than none. An AI model adds only judgment on top: links to other
+cameras and the next step. When no model answers, the standard next step for
+that kind of event completes the brief, so the operator never sees a blank.
 """
 from __future__ import annotations
 
@@ -49,12 +50,55 @@ def _label(event_type: str | None) -> str:
     return LABELS.get(event_type or "", (event_type or "Event").replace("_", " ").capitalize())
 
 
-def template_brief(incident: dict) -> str:
+def template_brief(incident: dict, other_activity: list[dict] | None = None) -> str:
     """Brief from an incident in the form Incident.for_agent() returns."""
+    situation, evidence = template_facts(incident)
+    return (f"Situation: {situation}\nEvidence: {evidence}\n"
+            f"Other cameras: {template_other_cameras(other_activity or [])}\n"
+            f"Next step: {template_next_step(incident)}")
+
+
+def template_other_cameras(activity: list[dict]) -> str:
+    """What the other cameras saw recently, as a fact rather than a guess.
+
+    A small model told "nothing elsewhere" when a watched person had been
+    confirmed on another camera minutes earlier. Listing the activity itself
+    means the operator always sees it and can judge the link.
+    """
+    if not activity:
+        return "Nothing notable in the last 15 minutes."
+    by_camera: dict[str, list[dict]] = {}
+    for e in activity:
+        by_camera.setdefault(e.get("camera") or e.get("camera_id") or "?", []).append(e)
+    parts = []
+    for camera, events in list(by_camera.items())[:3]:
+        shown = ", ".join(
+            f"{e.get('time') or '—'} {_label(e.get('type'))}" + (f" (track #{e['track_id']})" if e.get("track_id") is not None else "")
+            for e in events[:3]
+        )
+        more = f" and {len(events) - 3} more" if len(events) > 3 else ""
+        parts.append(f"{camera}: {shown}{more}")
+    return "; ".join(parts) + "."
+
+
+def template_next_step(incident: dict) -> str:
+    """The standard next step for the most serious kind of event present."""
+    camera = incident.get("camera") or "the camera"
+    types = {e.get("type") for e in incident.get("events") or []}
+    step = next((text for kinds, text in NEXT_STEPS if types & set(kinds)), DEFAULT_NEXT_STEP)
+    return step.format(camera=camera)
+
+
+def template_facts(incident: dict) -> tuple[str, str]:
+    """The Situation and Evidence lines, read straight off the events.
+
+    These are what a brief must never get wrong, so even when an AI model
+    writes the rest of the brief, these two lines come from here.
+    """
     events = incident.get("events") or []
     camera = incident.get("camera") or "the camera"
     if not events:
-        return f"Situation: An alarm was raised on {camera}.\nEvidence: No event details were recorded.\nNext step: {DEFAULT_NEXT_STEP}"
+        return f"An alarm was raised on {camera}.", "No event details were recorded."
 
     # The first event at the incident's highest severity is what the alarm was about.
     top_rank = max(RANK.get(e.get("severity"), 0) for e in events)
@@ -74,8 +118,9 @@ def template_brief(incident: dict) -> str:
     for e in events:
         groups.setdefault(e.get("type") or "", []).append(e)
     ordered = sorted(groups.values(), key=lambda g: (-max(RANK.get(e.get("severity"), 0) for e in g), events.index(g[0])))
+    # The four most serious kinds, then shown in the order they happened.
     lines = []
-    for group in ordered[:4]:
+    for group in sorted(ordered[:4], key=lambda g: events.index(g[0])):
         first = group[0]
         line = f"{first.get('time') or '—'} {_label(first.get('type'))}"
         if len(group) == 1:
@@ -85,8 +130,4 @@ def template_brief(incident: dict) -> str:
             shown = ", ".join(f"#{t}" for t in tracks[:5]) + (", …" if len(tracks) > 5 else "")
             line += f" ×{len(group)}" + (f" (tracks {shown})" if tracks else "")
         lines.append(line)
-    evidence = "; ".join(lines)
-
-    types = {e.get("type") for e in events}
-    step = next((text for kinds, text in NEXT_STEPS if types & set(kinds)), DEFAULT_NEXT_STEP)
-    return f"Situation: {situation}\nEvidence: {evidence}.\nNext step: {step.format(camera=camera)}"
+    return situation, "; ".join(lines) + "."

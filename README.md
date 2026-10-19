@@ -82,7 +82,7 @@ Every threshold is in `ZoneConfig` (`backend/config.py`):
 | `approach_cooldown_sec` | 20.0 | Minimum gap before the same track warns again. |
 
 ```bash
-pytest backend/tests -q      # 339 tests
+pytest backend/tests -q      # 346 tests
 ```
 
 ### AI Analyst

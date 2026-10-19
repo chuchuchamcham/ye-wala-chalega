@@ -65,6 +65,27 @@ class EventSource:
         return events[:limit]
 
 
+def other_camera_activity(source: EventSource, incident: dict, minutes_back: int = 15, limit: int = 12) -> list[dict]:
+    """Notable recent events on every camera except the incident's own.
+
+    Gathered in code and handed to the Supervisor up front: a small local
+    model rarely thinks to search for a sighting on another camera, yet that
+    link is often the most useful thing a brief can add. Sightings of watched
+    people and vehicles, camera outages, and anything MEDIUM or above count.
+    """
+    from backend.agent.incidents import RANK
+
+    here = incident.get("camera_id")
+    notable = [
+        e for e in source.recent(minutes_back, None, 1000)
+        if e.get("camera_id") != here and (
+            e.get("type") in TARGET_EVENT_TYPES or e.get("type") == "CAMERA_OFFLINE"
+            or RANK.get(e.get("severity"), 0) >= RANK["MEDIUM"])
+    ]
+    # Oldest first, so it reads as a timeline leading up to the incident.
+    return [event_view(e) for e in reversed(notable[:limit])]
+
+
 def search_events_tool(source: EventSource) -> ToolSpec:
     def handler(args: dict) -> dict:
         minutes = _int(args.get("minutes_back"), 30, 1, 24 * 60)
@@ -152,8 +173,13 @@ class ProposedAction:
 class ProposalCollector:
     """Holds what an agent proposed during one run. Nothing is recorded or
     shown until the run finishes, so a run retried on another model never
-    leaves duplicate proposals behind."""
+    leaves duplicate proposals behind.
+
+    Capped in code, not just in the prompt: a small local model asked for at
+    most two proposals made four. An operator facing an alarm needs one or
+    two clear choices, not a list."""
     items: list[ProposedAction] = field(default_factory=list)
+    limit: int = 2
 
 
 def propose_action_tool(collector: ProposalCollector) -> ToolSpec:
@@ -164,7 +190,14 @@ def propose_action_tool(collector: ProposalCollector) -> ToolSpec:
         reason = str(args.get("reason") or "").strip()[:300]
         if not reason:
             raise ValueError("give a reason the operator can check")
-        collector.items.append(ProposedAction(action=action, camera_id=args.get("camera_id") or None, reason=reason))
+        camera_id = str(args.get("camera_id") or "").strip()
+        # Models sometimes spell "no camera" as text instead of null.
+        camera_id = None if camera_id.lower() in ("", "null", "none", "-") else camera_id
+        if any(p.action == action and p.camera_id == camera_id for p in collector.items):
+            return "Already proposed; not added again."
+        if len(collector.items) >= collector.limit:
+            raise ValueError(f"at most {collector.limit} proposals per answer; this one was not recorded")
+        collector.items.append(ProposedAction(action=action, camera_id=camera_id, reason=reason))
         return "Recorded as a proposal. It does nothing until an operator approves it."
 
     return ToolSpec(
