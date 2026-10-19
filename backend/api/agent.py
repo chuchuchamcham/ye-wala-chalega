@@ -44,6 +44,17 @@ def status() -> dict:
     return {"enabled": True, "models": _service.models(), "message": None}
 
 
+@router.get("/patterns")
+def patterns(days: int = 7) -> list[dict]:
+    """Repeats across days. Plain counting over the event log, so it works
+    whether or not the AI analyst is switched on."""
+    from backend.agent.patterns import recent_patterns
+    from backend.live.camera_manager import camera_manager
+
+    found = recent_patterns(store=camera_manager.store, days_back=max(1, min(days, 30)))
+    return [p.to_dict() for p in found[:20]]
+
+
 @router.get("/briefs")
 def briefs(limit: int = 50) -> list[dict]:
     return _service.briefs(limit=max(1, min(limit, 200))) if _service is not None else []

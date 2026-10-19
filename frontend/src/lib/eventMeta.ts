@@ -42,6 +42,10 @@ const REGISTRY: Record<string, EventMeta> = {
   // says which of the two actually happened.
   TARGET_BEHAVIOR_ALERT: { label: "Behaviour Escalation", severity: "red", icon: ShieldAlert },
   LOW_LIGHT: { label: "Low-Light Detected", severity: "blue", icon: Sparkles },
+  // Sentinel (backend/live/tamper.py and the camera health monitor).
+  CAMERA_TAMPERED: { label: "Camera Tampering", severity: "red", icon: ShieldAlert },
+  CAMERA_SABOTAGE_SUSPECTED: { label: "Possible Sabotage", severity: "red", icon: ShieldAlert },
+  CAMERA_VIEW_RESTORED: { label: "Camera View Restored", severity: "green", icon: Eye },
   // AI analyst records (backend/agent). Always informational: the analyst
   // explains and proposes, it never raises an alarm.
   AGENT_BRIEF: { label: "AI Brief", severity: "blue", icon: Sparkles },

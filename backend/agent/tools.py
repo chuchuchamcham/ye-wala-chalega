@@ -142,6 +142,27 @@ def target_sightings_tool(source: EventSource) -> ToolSpec:
     )
 
 
+def patterns_tool(source: EventSource) -> ToolSpec:
+    def handler(args: dict) -> dict:
+        from backend.agent.patterns import recent_patterns
+
+        days = _int(args.get("days_back"), 7, 1, 30)
+        found = recent_patterns(source.store, source.manager, days_back=days, now=source.clock())
+        return {"patterns": [p.summary for p in found[:10]]}
+
+    return ToolSpec(
+        name="find_patterns",
+        description="Repeats across days: the same plate read on several days, or alarms on one camera at the same hour on several days.",
+        input_schema={
+            "type": "object",
+            "properties": {"days_back": {"type": "integer", "description": "How many days to look back, 1-30."}},
+            "required": ["days_back"],
+            "additionalProperties": False,
+        },
+        handler=handler,
+    )
+
+
 def list_cameras_tool(manager) -> ToolSpec:
     def handler(args: dict) -> dict:
         cameras = []

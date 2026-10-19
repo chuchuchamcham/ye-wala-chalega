@@ -39,6 +39,10 @@ EVENT_SEVERITY: dict[str, str] = {
     "TARGET_VEHICLE_REACQUIRED": HIGH,
     "TARGET_CROSS_CAMERA_MATCH": HIGH,
     "CAMERA_OFFLINE": HIGH,
+    # Sentinel. A blinded camera is as useful to an intruder as a missing one,
+    # and one that dies right after activity nearby may have been cut.
+    "CAMERA_TAMPERED": HIGH,
+    "CAMERA_SABOTAGE_SUSPECTED": CRITICAL,
     # Something worth an operator's attention, but not an alarm.
     "ZONE_APPROACH": MEDIUM,
     "LONG_DWELL": MEDIUM,
@@ -57,6 +61,7 @@ EVENT_SEVERITY: dict[str, str] = {
     "VEHICLE_DETECTED": INFO,
     "LOW_LIGHT": INFO,
     "CAMERA_ONLINE": INFO,
+    "CAMERA_VIEW_RESTORED": INFO,
 }
 
 # What an external siren/alarm responds to. Deliberately narrow: an alarm that
@@ -185,6 +190,19 @@ def describe_event(event: dict) -> str:
         return "Camera is connected but frames have stopped updating"
     if etype == "CAMERA_ONLINE":
         return "Camera connected"
+    if etype == "CAMERA_TAMPERED":
+        detail = data.get("detail") or "view changed suddenly"
+        return f"Possible camera tampering: {detail}"
+    if etype == "CAMERA_VIEW_RESTORED":
+        return "Camera view back to normal"
+    if etype == "CAMERA_SABOTAGE_SUSPECTED":
+        count = data.get("recent_alerts")
+        secs = data.get("seconds_since_last_alert")
+        where = data.get("last_alert_camera")
+        alerts = f"{count} alert{'s' if count != 1 else ''}" if count else "recent alerts"
+        timing = f", the last {secs}s earlier" if secs is not None else ""
+        place = f" (last on {where})" if where else ""
+        return f"Camera went offline after {alerts} on the post{timing}{place}: possible sabotage"
     return etype.replace("_", " ").capitalize()
 
 

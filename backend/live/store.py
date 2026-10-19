@@ -245,12 +245,17 @@ class EventStore:
 
     def query(self, limit: int = 100, camera_id: str | None = None,
               severity: str | None = None, alarms_only: bool = False,
-              since: float | None = None) -> list[dict]:
+              since: float | None = None, types: list[str] | None = None) -> list[dict]:
         sql = "SELECT * FROM events WHERE 1=1"
         args: list = []
         if camera_id:
             sql += " AND camera_id = ?"
             args.append(camera_id)
+        if types:
+            # Indexed column: a week of plate reads is found without scanning
+            # every routine detection in between.
+            sql += f" AND type IN ({','.join('?' * len(types))})"
+            args.extend(types)
         if severity:
             sql += " AND severity = ?"
             args.append(severity)

@@ -34,6 +34,7 @@ from backend.core.video import (
     PushStreamReader, RECONNECTING, STOPPED, VideoOpenError,
 )
 from backend.live.evidence import EvidenceRecorder
+from backend.live.tamper import TamperMonitor, TamperReading, TappedReader
 from backend.live.target_registry import target_registry
 from backend.live.store import EventStore
 from backend.orchestrator import CombinedPipeline, OrchestratorRequest
@@ -247,6 +248,7 @@ class LiveSession:
         self._alarm_gate: dict[str, float] = {}
         self._last_health: str | None = None
         self.evidence = EvidenceRecorder(camera.camera_id, EVIDENCE_DIR / "live")
+        self.tamper = TamperMonitor()
         self._fault_until: float = 0.0
 
     def _new_reader(self):
@@ -327,6 +329,7 @@ class LiveSession:
                     self._run_with_analysis()
                 else:
                     for frame in self.reader:
+                        self._check_tamper(frame.image)
                         self._publish(frame.image)
                         if self._stopping:
                             break
@@ -428,10 +431,27 @@ class LiveSession:
         # polygons, so the stream is opened up front rather than lazily.
         self.reader.connect()
         pipeline.run(
-            reader=self.reader,
+            # Tamper checks see each frame before the pipeline draws on it.
+            reader=TappedReader(self.reader, self._check_tamper),
             write_output=False,
             frame_callback=self._on_analysed_frame,
         )
+
+    def _check_tamper(self, image) -> None:
+        """Sentinel: report a covered, blurred or turned camera, and when its
+        view comes back. Never allowed to interrupt the video itself."""
+        try:
+            result = self.tamper.observe(image)
+        except Exception:
+            logger.exception("tamper check failed on %s", self.camera.camera_id)
+            return
+        if isinstance(result, TamperReading):
+            self.emit_event({"type": "CAMERA_TAMPERED", "data": {
+                "kind": result.kind, "detail": result.detail,
+                "baseline": result.baseline, "current": result.current,
+            }})
+        elif result == "restored":
+            self.emit_event({"type": "CAMERA_VIEW_RESTORED", "data": {}})
 
     def _on_analysed_frame(self, image, new_events: list[dict]) -> None:
         self._publish(image)
@@ -726,11 +746,44 @@ class CameraManager:
         while not self._monitor_stop.wait(self.HEALTH_POLL_SEC):
             for session in self.list():
                 try:
-                    session.check_health()
+                    event = session.check_health()
+                    if event is not None and event.get("type") == "CAMERA_OFFLINE":
+                        self.check_sabotage(session)
                 except Exception:
                     # Health monitoring must never be the thing that takes the
                     # fleet down.
                     logger.exception("health check failed for %s", session.camera.camera_id)
+
+    # A camera that goes dark this soon after an alert anywhere on the post
+    # is treated as possibly cut, not merely faulty.
+    SABOTAGE_WINDOW_SEC = 120.0
+    _ACTIVITY_SEVERITIES = frozenset({"MEDIUM", "HIGH", "CRITICAL"})
+
+    def check_sabotage(self, session: "LiveSession", now: float | None = None) -> dict | None:
+        """Sentinel: a camera failing right after activity nearby is how an
+        intruder would blind a post, so that timing is raised on its own.
+
+        Cameras also fail for dull reasons, which is why this needs recent
+        alerts as well as the outage, and why it reports a suspicion with the
+        evidence rather than a conclusion.
+        """
+        now = time.time() if now is None else now
+        recent = [
+            e for e in self.recent_events(limit=500)
+            if now - (e.get("wall_time") or 0) <= self.SABOTAGE_WINDOW_SEC
+            and e.get("severity") in self._ACTIVITY_SEVERITIES
+            and not str(e.get("type", "")).startswith(("CAMERA_", "AGENT_"))
+        ]
+        if not recent:
+            return None
+        last = max(recent, key=lambda e: e.get("wall_time") or 0)
+        return session.emit_event({"type": "CAMERA_SABOTAGE_SUSPECTED", "data": {
+            "recent_alerts": len(recent),
+            "window_sec": int(self.SABOTAGE_WINDOW_SEC),
+            "last_alert_type": last.get("type"),
+            "last_alert_camera": last.get("camera_name"),
+            "seconds_since_last_alert": round(now - (last.get("wall_time") or now)),
+        }})
 
     # --- fleet-wide event subscription ---------------------------------------
     #

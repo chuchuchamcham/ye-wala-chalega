@@ -50,12 +50,20 @@ def _label(event_type: str | None) -> str:
     return LABELS.get(event_type or "", (event_type or "Event").replace("_", " ").capitalize())
 
 
-def template_brief(incident: dict, other_activity: list[dict] | None = None) -> str:
+def template_brief(incident: dict, other_activity: list[dict] | None = None, history: list | None = None) -> str:
     """Brief from an incident in the form Incident.for_agent() returns."""
     situation, evidence = template_facts(incident)
-    return (f"Situation: {situation}\nEvidence: {evidence}\n"
-            f"Other cameras: {template_other_cameras(other_activity or [])}\n"
-            f"Next step: {template_next_step(incident)}")
+    lines = [f"Situation: {situation}", f"Evidence: {evidence}",
+             f"Other cameras: {template_other_cameras(other_activity or [])}"]
+    if history:
+        lines.append(f"History: {template_history(history)}")
+    lines.append(f"Next step: {template_next_step(incident)}")
+    return "\n".join(lines)
+
+
+def template_history(patterns: list) -> str:
+    """Repeats from earlier days that touch this incident (Pattern objects)."""
+    return " ".join(p.summary for p in patterns[:2])
 
 
 def template_other_cameras(activity: list[dict]) -> str:

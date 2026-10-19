@@ -18,12 +18,13 @@ import re
 from dataclasses import dataclass, field
 
 from backend.agent.models import ChatModel, ModelUnavailable, ToolResult, ToolSpec
-from backend.agent.template import template_facts, template_next_step, template_other_cameras
+from backend.agent.template import template_facts, template_history, template_next_step, template_other_cameras
 from backend.agent.tools import (
     EventSource,
     ProposalCollector,
     list_cameras_tool,
     other_camera_activity,
+    patterns_tool,
     propose_action_tool,
     search_events_tool,
     target_sightings_tool,
@@ -129,7 +130,8 @@ LEAN_MAX_STEPS = 3
 
 
 def run_supervisor(model: ChatModel, incident: dict, source: EventSource, manager, max_steps: int = 8,
-                   other_activity: list[dict] | None = None, lean: bool = False) -> AgentRun:
+                   other_activity: list[dict] | None = None, lean: bool = False,
+                   history_text: str | None = None) -> AgentRun:
     collector = ProposalCollector()
     specialist_steps: list[dict] = []
 
@@ -161,7 +163,8 @@ def run_supervisor(model: ChatModel, incident: dict, source: EventSource, manage
     elsewhere = template_other_cameras(other_activity if other_activity is not None else other_camera_activity(source, incident))
     task = (
         "Decide the next step for this incident.\n\n"
-        f"Facts already shown to the operator:\nSituation: {situation}\nEvidence: {evidence}\nOther cameras: {elsewhere}\n\n"
+        f"Facts already shown to the operator:\nSituation: {situation}\nEvidence: {evidence}\nOther cameras: {elsewhere}\n"
+        + (f"History: {history_text}\n" if history_text else "") + "\n"
         f"Incident events:\n{json.dumps(incident, ensure_ascii=False)}"
     )
     run = run_agent(model, "supervisor", supervisor_prompt(lean), tools, task, max_steps)
@@ -194,30 +197,36 @@ class WrittenBrief:
     model_contributed: bool
 
 
-def write_brief(model: ChatModel, incident: dict, source: EventSource, manager, max_steps: int = 8) -> WrittenBrief:
+def write_brief(model: ChatModel, incident: dict, source: EventSource, manager, max_steps: int = 8,
+                history: list | None = None) -> WrittenBrief:
     """A full brief: facts from rules, judgment from the model.
 
-    Situation, Evidence and what other cameras saw always come from the
-    rules. The model decides the Next step and proposes actions; a missing
-    Next step falls back to the standard one for that kind of alarm.
+    Situation, Evidence, what other cameras saw and any repeats from earlier
+    days (history, Pattern objects) always come from the rules. The model
+    decides the Next step and proposes actions; a missing Next step falls
+    back to the standard one for that kind of alarm.
     """
     activity = other_camera_activity(source, incident)
+    history_text = template_history(history) if history else None
     run = run_supervisor(model, incident, source, manager, max_steps=max_steps, other_activity=activity,
-                         lean=getattr(model, "kind", "") == "local")
+                         lean=getattr(model, "kind", "") == "local", history_text=history_text)
     next_step = parse_judgment(run.text).get("next_step") if run.stopped != "refusal" else None
     situation, evidence = template_facts(incident)
-    text = "\n".join([
+    lines = [
         f"Situation: {situation}",
         f"Evidence: {evidence}",
         f"Other cameras: {template_other_cameras(activity)}",
-        f"Next step: {next_step or template_next_step(incident)}",
-    ])
-    return WrittenBrief(text=text, run=run, model_contributed=bool(next_step or run.proposals))
+    ]
+    if history_text:
+        lines.append(f"History: {history_text}")
+    lines.append(f"Next step: {next_step or template_next_step(incident)}")
+    return WrittenBrief(text="\n".join(lines), run=run, model_contributed=bool(next_step or run.proposals))
 
 
 def run_copilot(model: ChatModel, question: str, source: EventSource, manager, max_steps: int = 8) -> AgentRun:
     collector = ProposalCollector()
-    tools = [search_events_tool(source), target_sightings_tool(source), list_cameras_tool(manager), propose_action_tool(collector)]
+    tools = [search_events_tool(source), target_sightings_tool(source), patterns_tool(source),
+             list_cameras_tool(manager), propose_action_tool(collector)]
     run = run_agent(model, "copilot", COPILOT_PROMPT, tools, question, max_steps)
     run.proposals = list(collector.items)
     return run

@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass, field
 from backend.agent.agents import AgentRun, run_copilot, write_brief
 from backend.agent.incidents import Incident, IncidentGrouper
 from backend.agent.models import ModelChain, ModelUnavailable
+from backend.agent.patterns import patterns_for_incident, recent_patterns
 from backend.agent.template import template_brief
 from backend.agent.tools import EventSource, other_camera_activity
 from backend.core.events import INFO
@@ -150,11 +151,13 @@ class AgentService:
     def brief_incident(self, incident: Incident) -> Brief:
         with self._lock:
             snapshot = incident.for_agent()
+        history = patterns_for_incident(
+            recent_patterns(self.source.store, self.manager, now=self.clock()), snapshot)
         written = model = None
         note = None
         try:
             written, model = self.chain.run(lambda m: write_brief(
-                m, snapshot, self.source, self.manager, max_steps=self.config.max_steps))
+                m, snapshot, self.source, self.manager, max_steps=self.config.max_steps, history=history))
         except ModelUnavailable as exc:
             note = f"No AI model answered: {exc}"
         except Exception:  # the operator still gets a brief; the bug goes to the log
@@ -178,7 +181,7 @@ class AgentService:
             brief = Brief(
                 brief_id=uuid.uuid4().hex[:10], incident_id=incident.incident_id,
                 camera_id=incident.camera_id, camera_name=incident.camera_name, status="template",
-                text=template_brief(snapshot, other_camera_activity(self.source, snapshot)), model="template", model_kind="template",
+                text=template_brief(snapshot, other_camera_activity(self.source, snapshot), history), model="template", model_kind="template",
                 created_at=self.clock(), incident=snapshot, note=note,
             )
             data = {"model": "template", "note": note}

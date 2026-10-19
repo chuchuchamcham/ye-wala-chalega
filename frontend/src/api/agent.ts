@@ -63,7 +63,19 @@ export interface CopilotReply {
   proposals: Proposal[];
 }
 
+export interface Pattern {
+  kind: "plate" | "hour";
+  key: string;
+  summary: string;
+  sightings: number;
+  days: number;
+  cameras: string[];
+  first_seen: number;
+  last_seen: number;
+}
+
 export const agentApi = {
+  patterns: () => api.get<Pattern[]>("/api/agent/patterns"),
   status: () => api.get<AgentStatus>("/api/agent/status"),
   briefs: () => api.get<Brief[]>("/api/agent/briefs"),
   proposals: () => api.get<Proposal[]>("/api/agent/proposals"),

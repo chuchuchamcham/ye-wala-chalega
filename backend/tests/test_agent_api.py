@@ -88,6 +88,21 @@ def test_copilot_answers_and_reports_when_no_model_is_reachable(as_role, service
     assert down.status_code == 503 and "offline" in down.json()["detail"]
 
 
+def test_patterns_work_even_with_the_analyst_off(as_role, monkeypatch):
+    from backend.agent.patterns import Pattern
+
+    as_role(OPERATOR)
+    seen = {}
+
+    def fake(store=None, manager=None, days_back=7, now=None):
+        seen["days"] = days_back
+        return [Pattern(kind="plate", key="TEST123", summary="Plate TEST123 read 3 times on 2 days.", sightings=3, days=2)]
+
+    monkeypatch.setattr("backend.agent.patterns.recent_patterns", fake)
+    body = client.get("/api/agent/patterns", params={"days": 90}).json()
+    assert body[0]["key"] == "TEST123" and seen["days"] == 30
+
+
 def test_empty_question_is_rejected(as_role, service):
     as_role(OPERATOR)
     service([])

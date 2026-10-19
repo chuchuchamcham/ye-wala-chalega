@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Bot, Check, ChevronDown, ChevronRight, Cloud, CloudOff, FileText, Loader2, Send, Sparkles, X } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronRight, Cloud, CloudOff, FileText, Loader2, Repeat, Send, Sparkles, X } from "lucide-react";
 import { Panel } from "../components/common/Panel";
 import { EmptyState } from "../components/common/States";
-import { agentApi, type AgentStatus, type Brief, type CopilotReply, type ModelKind, type Proposal } from "../api/agent";
+import { agentApi, type AgentStatus, type Brief, type CopilotReply, type ModelKind, type Pattern, type Proposal } from "../api/agent";
 import type { SessionUser } from "../api/auth";
 import { ApiError } from "../api/client";
 import { eventMeta } from "../lib/eventMeta";
@@ -53,7 +53,7 @@ function BriefText({ text }: { text: string }) {
   return (
     <div className="flex flex-col gap-1.5 text-[13px] leading-relaxed text-text-primary">
       {text.split("\n").filter((line) => line.trim()).map((line, i) => {
-        const match = line.match(/^(Situation|Evidence|Other cameras|Next step):\s*(.*)$/i);
+        const match = line.match(/^(Situation|Evidence|Other cameras|History|Next step):\s*(.*)$/i);
         return match ? (
           <p key={i}>
             <span className="font-semibold text-text-secondary">{match[1]}: </span>
@@ -276,6 +276,7 @@ export function Analyst({ user }: { user?: SessionUser | null }) {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [patterns, setPatterns] = useState<Pattern[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   // Matches the API: auditors read the record, operators and admins act.
@@ -283,10 +284,11 @@ export function Analyst({ user }: { user?: SessionUser | null }) {
 
   const load = useCallback(async () => {
     try {
-      const [s, b, p] = await Promise.all([agentApi.status(), agentApi.briefs(), agentApi.proposals()]);
+      const [s, b, p, pat] = await Promise.all([agentApi.status(), agentApi.briefs(), agentApi.proposals(), agentApi.patterns()]);
       setStatus(s);
       setBriefs(b);
       setProposals(p);
+      setPatterns(pat);
       setError(null);
     } catch (err) {
       setError(errorText(err, "Could not load the AI analyst."));
@@ -374,6 +376,23 @@ export function Analyst({ user }: { user?: SessionUser | null }) {
         </Panel>
 
         <div className="flex flex-col gap-4">
+          <Panel title="Patterns" meta="last 7 days">
+            {patterns.length === 0 ? (
+              <div className="text-[12.5px] text-text-tertiary">
+                No repeats yet. A plate read on several days, or alarms on one camera at the same hour on several
+                days, shows up here.
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {patterns.map((p) => (
+                  <li key={`${p.kind}-${p.key}`} className="flex items-start gap-2 text-[12px] text-text-secondary">
+                    <Repeat size={13} className="mt-[2px] shrink-0 text-accent-amber" />
+                    <span>{p.summary}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
           <Panel title="Waiting for approval" meta={`${pending.length}`}>
             {pending.length === 0 ? (
               <div className="text-[12.5px] text-text-tertiary">Nothing to approve.</div>
