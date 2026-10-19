@@ -6,6 +6,7 @@ process can be launched from any working directory.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -337,6 +338,35 @@ class LowLightConfig:
 
 
 @dataclass
+class AgentConfig:
+    """AI analyst agents that turn alarms into briefed incidents.
+
+    Off unless DRISHTI_AGENTS=1: briefing calls a language model, and a post
+    that has not chosen one must not start sending incident data anywhere.
+    The agents only read events and propose actions; detection and the siren
+    never depend on them.
+    """
+    enabled: bool = field(default_factory=lambda: os.environ.get("DRISHTI_AGENTS") == "1")
+    # Cloud model, used whenever it is reachable.
+    cloud_model: str = field(default_factory=lambda: os.environ.get("DRISHTI_AGENT_MODEL", "claude-opus-5-5"))
+    cloud_effort: str = field(default_factory=lambda: os.environ.get("DRISHTI_AGENT_EFFORT", "medium"))
+    cloud_timeout_sec: float = 60.0
+    # Local model through Ollama, so briefs keep coming with no internet.
+    local_model: str = field(default_factory=lambda: os.environ.get("DRISHTI_LOCAL_MODEL", "qwen2.5:3b"))
+    local_url: str = field(default_factory=lambda: os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434"))
+    local_timeout_sec: float = 180.0
+    # After a model fails, try the next one first for this long, so an
+    # offline post does not wait on the cloud timeout for every incident.
+    retry_after_sec: float = 60.0
+    # Tool calls one agent may make before it must answer.
+    max_steps: int = 8
+    # Events on one camera further apart than this start a new incident.
+    incident_gap_sec: float = 60.0
+    # Wait this long after the first alarm so the brief sees what followed.
+    brief_delay_sec: float = 4.0
+
+
+@dataclass
 class AppConfig:
     video: VideoEngineConfig = field(default_factory=VideoEngineConfig)
     tracker: TrackerConfig = field(default_factory=TrackerConfig)
@@ -345,6 +375,7 @@ class AppConfig:
     zone: ZoneConfig = field(default_factory=ZoneConfig)
     behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
     lowlight: LowLightConfig = field(default_factory=LowLightConfig)
+    agent: AgentConfig = field(default_factory=AgentConfig)
 
 
 def get_config() -> AppConfig:

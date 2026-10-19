@@ -36,5 +36,10 @@ open-image-models==0.6.0
 onnxruntime==1.29.0
 rich==15.0.0
 
+# AI analyst agents (backend/agent). Claude through the official SDK; the
+# offline fallback talks to a local Ollama server over HTTP and needs no
+# package here. Ollama itself installs separately: https://ollama.com
+anthropic==1.15.0
+
 pytest
 httpx

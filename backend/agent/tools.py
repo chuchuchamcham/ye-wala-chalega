@@ -1,0 +1,187 @@
+"""What the agents can look at, and the one thing they can ask for.
+
+Every tool here only reads. The single exception, propose_action, records a
+request that does nothing until an operator approves it. Tool results carry
+camera and OCR text (plate readings, zone names) that the agents are told to
+treat as data, never as instructions.
+
+Tool inputs are checked here too: Claude's strict mode guarantees the shape,
+but a local model does not, and strict mode cannot express number limits.
+"""
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+
+from backend.agent.incidents import event_view
+from backend.agent.models import ToolSpec
+
+TARGET_EVENT_TYPES = (
+    "TARGET_CONFIRMED", "TARGET_REACQUIRED", "TARGET_LOST", "TARGET_CROSS_CAMERA_MATCH",
+    "TARGET_ZONE_INTRUSION", "TARGET_BEHAVIOR_ALERT",
+    "TARGET_VEHICLE_FOUND", "TARGET_VEHICLE_REACQUIRED", "TARGET_VEHICLE_LOST",
+)
+# What an agent may propose. Nothing here runs without an operator's approval.
+ACTIONS = (
+    "enable_person_id",     # look for this person on another camera
+    "enable_anpr",          # read plates on another camera
+    "review_footage",       # a person should look at a clip
+    "dispatch_patrol",      # send someone to a location
+    "raise_alert_level",    # tell the post to heighten readiness
+)
+
+
+def _nullable(schema: dict) -> dict:
+    return {"anyOf": [schema, {"type": "null"}]}
+
+
+def _int(value, default: int, low: int, high: int) -> int:
+    try:
+        return max(low, min(high, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+class EventSource:
+    """Reads events from the durable store when there is one, otherwise from
+    the cameras' in-memory recent events (as in tests and short demos)."""
+
+    def __init__(self, store=None, manager=None, clock=time.time):
+        self.store = store
+        self.manager = manager
+        self.clock = clock
+
+    def recent(self, minutes_back: int, camera_id: str | None, limit: int) -> list[dict]:
+        since = self.clock() - minutes_back * 60
+        if self.store is not None:
+            events = self.store.query(limit=1000, camera_id=camera_id, since=since)
+        elif self.manager is not None:
+            events = [e for e in self.manager.recent_events(limit=1000, camera_id=camera_id)
+                      if (e.get("wall_time") or 0) >= since]
+        else:
+            events = []
+        events = [e for e in events if not str(e.get("type", "")).startswith("AGENT_")]
+        events.sort(key=lambda e: e.get("wall_time") or 0, reverse=True)
+        return events[:limit]
+
+
+def search_events_tool(source: EventSource) -> ToolSpec:
+    def handler(args: dict) -> dict:
+        minutes = _int(args.get("minutes_back"), 30, 1, 24 * 60)
+        limit = _int(args.get("limit"), 40, 1, 100)
+        camera_id = args.get("camera_id") or None
+        types = args.get("event_types") or None
+        events = source.recent(minutes, camera_id, 1000)
+        if types:
+            wanted = {str(t).upper() for t in types}
+            events = [e for e in events if e.get("type") in wanted]
+        return {"count": min(len(events), limit), "events": [event_view(e) for e in events[:limit]]}
+
+    return ToolSpec(
+        name="search_events",
+        description=(
+            "Search recent Drishti events, newest first. Filter by camera and by event type "
+            "(for example ZONE_ENTRY, TARGET_CONFIRMED, PLATE_CONFIRMED, CAMERA_OFFLINE). "
+            "Use it to check what else happened around an incident."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "camera_id": _nullable({"type": "string", "description": "Only this camera; null for all cameras."}),
+                "event_types": _nullable({"type": "array", "items": {"type": "string"}, "description": "Only these event types; null for all."}),
+                "minutes_back": {"type": "integer", "description": "How far back to look, 1-1440 minutes."},
+                "limit": {"type": "integer", "description": "Most events to return, 1-100."},
+            },
+            "required": ["camera_id", "event_types", "minutes_back", "limit"],
+            "additionalProperties": False,
+        },
+        handler=handler,
+    )
+
+
+def target_sightings_tool(source: EventSource) -> ToolSpec:
+    def handler(args: dict) -> dict:
+        minutes = _int(args.get("minutes_back"), 60, 1, 24 * 60)
+        events = [e for e in source.recent(minutes, None, 1000) if e.get("type") in TARGET_EVENT_TYPES]
+        return {"count": len(events[:60]), "sightings": [event_view(e) for e in events[:60]]}
+
+    return ToolSpec(
+        name="find_target_sightings",
+        description=(
+            "List every sighting of watched people and vehicles across all cameras: confirmed, "
+            "reacquired, lost, matched across cameras, or inside a restricted zone. Newest first."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"minutes_back": {"type": "integer", "description": "How far back to look, 1-1440 minutes."}},
+            "required": ["minutes_back"],
+            "additionalProperties": False,
+        },
+        handler=handler,
+    )
+
+
+def list_cameras_tool(manager) -> ToolSpec:
+    def handler(args: dict) -> dict:
+        cameras = []
+        for session in manager.list() if manager is not None else []:
+            status = session.status_dict()
+            cameras.append({
+                "camera_id": status.get("camera_id"), "name": status.get("name"),
+                "location": status.get("location"), "state": status.get("state"),
+                "analysis": status.get("modules") or [],
+            })
+        return {"cameras": cameras}
+
+    return ToolSpec(
+        name="list_cameras",
+        description="List the post's cameras with location, whether each is online, and which analysis is switched on.",
+        input_schema={"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+        handler=handler,
+    )
+
+
+@dataclass
+class ProposedAction:
+    action: str
+    camera_id: str | None
+    reason: str
+
+
+@dataclass
+class ProposalCollector:
+    """Holds what an agent proposed during one run. Nothing is recorded or
+    shown until the run finishes, so a run retried on another model never
+    leaves duplicate proposals behind."""
+    items: list[ProposedAction] = field(default_factory=list)
+
+
+def propose_action_tool(collector: ProposalCollector) -> ToolSpec:
+    def handler(args: dict) -> str:
+        action = args.get("action")
+        if action not in ACTIONS:
+            raise ValueError(f"action must be one of {', '.join(ACTIONS)}")
+        reason = str(args.get("reason") or "").strip()[:300]
+        if not reason:
+            raise ValueError("give a reason the operator can check")
+        collector.items.append(ProposedAction(action=action, camera_id=args.get("camera_id") or None, reason=reason))
+        return "Recorded as a proposal. It does nothing until an operator approves it."
+
+    return ToolSpec(
+        name="propose_action",
+        description=(
+            "Propose one action for the operator to approve or reject. Nothing happens without "
+            "their approval. Propose only what the evidence supports, one call per action."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": list(ACTIONS)},
+                "camera_id": _nullable({"type": "string", "description": "Camera the action concerns, or null."}),
+                "reason": {"type": "string", "description": "One sentence the operator can verify."},
+            },
+            "required": ["action", "camera_id", "reason"],
+            "additionalProperties": False,
+        },
+        handler=handler,
+    )
