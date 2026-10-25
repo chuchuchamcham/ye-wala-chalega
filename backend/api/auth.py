@@ -186,7 +186,19 @@ def _token_from(request: Request) -> str | None:
     return request.cookies.get("bw_session")
 
 
+# Sign-in is off by default: every request acts as a local administrator.
+# Set DRISHTI_LOGIN=1 to require accounts again - do that before exposing the
+# server to any network you do not fully trust.
+NO_LOGIN_USER = User(username="local-admin", role=ADMIN)
+
+
+def no_login() -> bool:
+    return not os.environ.get("DRISHTI_LOGIN")
+
+
 def current_user(request: Request) -> User:
+    if no_login():
+        return NO_LOGIN_USER
     if not has_users():
         # Before any account exists the system is unconfigured, not open: only
         # the bootstrap endpoint is reachable, and it is what creates the first

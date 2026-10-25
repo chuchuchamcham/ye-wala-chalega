@@ -30,7 +30,7 @@ from backend.agent.models import build_chain
 from backend.agent.service import AgentService
 from backend.api.agent import router as agent_router
 from backend.api.agent import set_service as set_agent_service
-from backend.api.auth import _token_from, decode_token, has_users, is_public_path
+from backend.api.auth import _token_from, decode_token, has_users, is_public_path, no_login
 from backend.api.auth_routes import router as auth_router
 from backend.api.jobs import job_manager
 from backend.api.live import router as live_router
@@ -42,6 +42,8 @@ from backend.api.sensor_routes import warm_up as warm_up_sensors
 from backend.api.talkdown_routes import router as talkdown_router
 from backend.api.siren_routes import router as siren_router
 from backend.api import search_routes
+from backend.api.feedback_routes import router as feedback_router
+from backend.api.satellite_routes import router as satellite_router
 from backend.api.talkdown_routes import talkdown
 from backend.api.schemas import (
     AnprModuleRequest, BehaviorModuleRequest, CombinedJobRequest, EvidenceItemOut,
@@ -119,6 +121,8 @@ app.include_router(sensor_router)
 app.include_router(talkdown_router)
 app.include_router(siren_router)
 app.include_router(search_routes.router)
+app.include_router(feedback_router)
+app.include_router(satellite_router)
 
 
 @app.middleware("http")
@@ -136,6 +140,7 @@ async def require_authentication(request: Request, call_next):
     path = request.url.path
     if (
         os.environ.get("BORDERWATCH_DISABLE_AUTH")
+        or no_login()
         or request.method == "OPTIONS"
         or not path.startswith("/api/")
         or is_public_path(path)
@@ -285,7 +290,7 @@ def start_zone_job(req: ZoneJobRequest):
 @app.post("/api/jobs", response_model=JobStatusOut)
 def start_combined_job(req: CombinedJobRequest):
     video_path = find_video_path(req.video_id)
-    if not (req.person_id or req.anpr or req.zone_ids or req.behavior or req.lowlight):
+    if not (req.person_id or req.anpr or req.zone_ids or req.behavior or req.lowlight or req.fog):
         raise HTTPException(400, "at least one module must be enabled")
 
     orch_req = OrchestratorRequest()
@@ -314,6 +319,9 @@ def start_combined_job(req: CombinedJobRequest):
         orch_req.enable_lowlight = True
         if req.lowlight.config:
             orch_req.lowlight_config = dataclasses.replace(LowLightConfig(), **req.lowlight.config)
+
+    if req.fog is not None:
+        orch_req.enable_dehaze = True
 
     with VideoReader(video_path) as reader:
         total_frames = reader.info.frame_count

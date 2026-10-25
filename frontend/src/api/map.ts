@@ -19,7 +19,22 @@ export interface SiteMap {
 /** Every call takes the site to act on; without one the backend uses its default site. */
 const q = (site?: string | null) => (site ? `site=${encodeURIComponent(site)}` : "");
 
+export interface PathPrediction {
+  from: [string, string];
+  trail: string[];
+  heading_deg: number;
+  last_seen: number;
+  basis: string;
+  next_camera: string | null;
+  /** Where to send the patrol, as fractions of the plan. */
+  point: [number, number];
+  eta_sec?: number;
+  advice: string;
+}
+
 export const mapApi = {
+  prediction: (site?: string | null) =>
+    api.get<{ prediction: PathPrediction | null }>(`/api/live/map/prediction${site ? `?${q(site)}` : ""}`),
   get: (site?: string | null) => api.get<SiteMap>(`/api/live/map${site ? `?${q(site)}` : ""}`),
   place: (site: string | null, name: string, x: number | null, y: number | null) =>
     api.put<{ positions: SiteMap["positions"] }>(`/api/live/map/positions${site ? `?${q(site)}` : ""}`, { name, x, y }),

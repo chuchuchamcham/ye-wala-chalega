@@ -33,8 +33,10 @@ from backend.core.video import (
     DEFAULT_MAX_ANALYSIS_WIDTH, LiveStreamReader, OFFLINE, ONLINE, PUSH_SCHEME,
     PushStreamReader, RECONNECTING, STOPPED, VideoOpenError,
 )
+from backend.core.motion import MotionGate
 from backend.live.crowd import PERSON_CLASS, GroupWatch
 from backend.live.evidence import EvidenceRecorder
+from backend.live.false_alarms import memory as false_alarm_memory
 from backend.live.tamper import TamperMonitor, TamperReading, TappedReader
 from backend.live.target_registry import target_registry
 from backend.live.store import EventStore
@@ -138,6 +140,8 @@ def _source_kind(source: str) -> str:
         return "rtsp"
     if lowered.startswith(("http://", "https://")):
         return "http"
+    if lowered.strip().isdigit():
+        return "webcam"
     return "file"
 
 
@@ -189,16 +193,17 @@ class AnalysisSpec:
     behavior: bool = False
     behavior_config: BehaviorConfig | None = None  # defaults to live_behavior_config()
     lowlight: bool = False
+    fog: bool = False
 
     @property
     def any_enabled(self) -> bool:
-        return bool(self.person_id or self.anpr or self.zones or self.behavior or self.lowlight)
+        return bool(self.person_id or self.anpr or self.zones or self.behavior or self.lowlight or self.fog)
 
     def module_names(self) -> list[str]:
         names = []
         for enabled, name in (
             (self.person_id, "person_id"), (self.anpr, "anpr"), (bool(self.zones), "zone"),
-            (self.behavior, "behavior"), (self.lowlight, "lowlight"),
+            (self.behavior, "behavior"), (self.lowlight, "lowlight"), (self.fog, "fog"),
         ):
             if enabled:
                 names.append(name)
@@ -251,6 +256,7 @@ class LiveSession:
         self.evidence = EvidenceRecorder(camera.camera_id, EVIDENCE_DIR / "live")
         self.tamper = TamperMonitor()
         self.groups = GroupWatch()
+        self.motion_gate: MotionGate | None = None
         # Extra per-frame observers of what is in view (search crops, say).
         self.track_observers: list = []
         self._fault_until: float = 0.0
@@ -416,6 +422,7 @@ class LiveSession:
                     return -1.0
                 return max(float(np.dot(embedding, other)) for other in others)
 
+        self.motion_gate = MotionGate()
         request = OrchestratorRequest(
             enable_person_id=spec.person_id,
             reference_photo_paths=list(spec.reference_photo_paths),
@@ -429,7 +436,9 @@ class LiveSession:
             enable_behavior=spec.behavior,
             behavior_config=spec.behavior_config or live_behavior_config(),
             enable_lowlight=spec.lowlight,
+            enable_dehaze=spec.fog,
             observe_tracks=self._observe_tracks,
+            motion_gate=self.motion_gate,
         )
         pipeline = CombinedPipeline(request)
         # Frame dimensions must be known before the pipeline can scale zone
@@ -490,6 +499,15 @@ class LiveSession:
         zone_label = self._zone_labels.get(zone_id)
         if zone_label:
             event = {**event, "zone_label": zone_label}
+        # An alarm matching a pattern the guards have marked false before is
+        # still logged and shown, but does not sound the siren.
+        likely_false = None
+        if severity in ALARM_SEVERITIES:
+            likely_false = false_alarm_memory.check({**event, "camera_name": self.camera.name, "wall_time": time.time()})
+        reason = describe_event(event)
+        if likely_false:
+            reason += (f" [likely false: marked false {likely_false['marks']} times here around"
+                       f" {likely_false['around']}" + (f", '{likely_false['note']}'" if likely_false["note"] else "") + "]")
         enriched = {
             "track_id": None, "frame_index": None, "timestamp_sec": 0.0,
             **event,
@@ -502,8 +520,9 @@ class LiveSession:
             "camera_id": self.camera.camera_id,
             "camera_name": self.camera.name,
             "severity": severity,
-            "reason": describe_event(event),
-            "alarm": self._claim_alarm(event.get("type", ""), severity),
+            "reason": reason,
+            "alarm": False if likely_false else self._claim_alarm(event.get("type", ""), severity),
+            "likely_false": likely_false,
             "wall_time": time.time(),
         }
         # Evidence is captured for exactly the events that raise an alarm.
@@ -682,6 +701,8 @@ class LiveSession:
             "zone_ids": [z.zone_id for z in self.analysis.zones],
             "analysis_error": self._analysis_error,
             "event_count": len(self._recent_events),
+            # Share of frames the detector skipped because nothing moved.
+            "ai_idle_share": round(self.motion_gate.idle_share, 2) if self.motion_gate else None,
         }
 
     def inject_fault(self, seconds: float = 20.0) -> float:

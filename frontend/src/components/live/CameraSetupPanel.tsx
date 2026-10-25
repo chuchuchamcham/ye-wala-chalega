@@ -12,6 +12,7 @@ interface ModuleState {
   anpr: boolean;
   behavior: boolean;
   lowlight: boolean;
+  fog: boolean;
 }
 
 const MODULE_LABELS: { key: keyof ModuleState; label: string; hint: string }[] = [
@@ -19,6 +20,7 @@ const MODULE_LABELS: { key: keyof ModuleState; label: string; hint: string }[] =
   { key: "anpr", label: "ANPR / Plate OCR", hint: "Reads vehicle number plates" },
   { key: "behavior", label: "Behaviour Analytics", hint: "Loitering, pacing, abnormal speed" },
   { key: "lowlight", label: "Low-Light Enhancement", hint: "Auto-detects and enhances dark frames" },
+  { key: "fog", label: "Fog Mode", hint: "Clears haze before detection, only on foggy frames" },
 ];
 
 /**
@@ -37,7 +39,7 @@ export function CameraSetupPanel({
   onApplied: () => void;
 }) {
   const [modules, setModules] = useState<ModuleState>({
-    person_id: false, anpr: false, behavior: false, lowlight: false,
+    person_id: false, anpr: false, behavior: false, lowlight: false, fog: false,
   });
   const [referenceSetId, setReferenceSetId] = useState<string | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
@@ -84,6 +86,7 @@ export function CameraSetupPanel({
       anpr: camera.modules.includes("anpr"),
       behavior: camera.modules.includes("behavior"),
       lowlight: camera.modules.includes("lowlight"),
+      fog: camera.modules.includes("fog"),
     });
     setReferenceSetId(camera.reference_set_id);
     setTargetPlate(camera.target_plate ?? "");
@@ -91,7 +94,7 @@ export function CameraSetupPanel({
 
   const blockedReason = useMemo(() => {
     if (modules.person_id && !referenceSetId) return "Upload at least one reference photo for Target Person ID";
-    if (!modules.person_id && !modules.anpr && !modules.behavior && !modules.lowlight && zones.length === 0) {
+    if (!modules.person_id && !modules.anpr && !modules.behavior && !modules.lowlight && !modules.fog && zones.length === 0) {
       return "Enable at least one module, or draw a zone";
     }
     return null;
@@ -110,6 +113,7 @@ export function CameraSetupPanel({
         zone_ids: zones.map((z) => z.zone_id),
         behavior: modules.behavior,
         lowlight: modules.lowlight,
+        fog: modules.fog,
       });
       setAppliedAt(Date.now());
       onApplied();

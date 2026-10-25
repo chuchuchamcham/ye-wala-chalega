@@ -40,8 +40,11 @@ def _set_session_cookie(response: Response, token: str) -> None:
 def whoami(request: Request) -> dict:
     """Session state. Deliberately unauthenticated so the UI can tell the
     difference between 'logged out' and 'not set up yet' before showing a form."""
-    from backend.api.auth import _token_from, decode_token
+    from backend.api.auth import NO_LOGIN_USER, _token_from, decode_token, no_login
 
+    if no_login():
+        return {"configured": True, "authenticated": True,
+                "user": {"username": NO_LOGIN_USER.username, "role": NO_LOGIN_USER.role}}
     if not has_users():
         return {"configured": False, "authenticated": False, "user": None}
     token = _token_from(request)

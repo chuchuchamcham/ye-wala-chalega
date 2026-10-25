@@ -35,6 +35,8 @@ from pydantic import BaseModel, Field
 
 from backend.api.auth import ADMIN, OPERATOR, User, require_role
 from backend.config import DATA_DIR
+from backend.live.camera_manager import camera_manager
+from backend.live.prediction import predict
 
 router = APIRouter(prefix="/api/live/map", tags=["live"])
 
@@ -223,3 +225,14 @@ def delete_site(site_id: str, _: User = CAN_EDIT) -> dict:
         _save(state)
         _image_path(site_id).unlink(missing_ok=True)
     return {"sites": _summary(state)}
+
+
+@router.get("/prediction")
+def prediction(site: str | None = None) -> dict:
+    """The intruder's likely next camera and where to send the patrol, from
+    the order of recent alerts across the site's placed cameras."""
+    import time
+    with _lock:
+        _, chosen = _site(_load(), site)
+        positions = {k: tuple(v) for k, v in chosen["positions"].items()}
+    return {"prediction": predict(camera_manager.recent_events(limit=500), positions, time.time())}

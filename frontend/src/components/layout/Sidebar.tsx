@@ -1,8 +1,9 @@
 import {
-  Activity, Bot, Car, ChevronsLeft, ChevronsRight, Eye, LayoutDashboard, ListChecks, Map as MapIcon, Moon, Radio, RadioTower, Scan, ScanSearch, ScrollText,
+  Activity, Bot, Car, ChevronsLeft, ChevronsRight, CloudFog, Eye, LayoutDashboard, ListChecks, Map as MapIcon, Radio, RadioTower, Satellite, Scan, ScanSearch, ScrollText,
   Search, Server, Settings, ShieldAlert, Siren, Smartphone, Users,
 } from "lucide-react";
 import { useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { NavLink } from "react-router-dom";
 import type { SessionUser } from "../../api/auth";
 import { SessionFooter } from "./AppLayout";
@@ -15,6 +16,7 @@ const primaryLinks = [
   { to: "/live", label: "Live Monitor", icon: Radio },
   { to: "/map", label: "Site Map", icon: MapIcon },
   { to: "/sensors", label: "Sensors", icon: RadioTower },
+  { to: "/satellite", label: "Satellite Check", icon: Satellite },
   { to: "/analyst", label: "AI Analyst", icon: Bot },
   { to: "/devices", label: "Connect Device", icon: Smartphone },
   { to: "/analysis", label: "Forensic Analysis", icon: Scan },
@@ -39,7 +41,7 @@ const moduleLinks = [
   { to: "/analysis?open=anpr", label: "ANPR / Plate OCR", icon: Search },
   { to: "/analysis?open=zone", label: "Zone Intrusion", icon: ShieldAlert },
   { to: "/analysis?open=behavior", label: "Behavioral Analytics", icon: Activity },
-  { to: "/analysis?open=lowlight", label: "Low-Light Enhancement", icon: Moon },
+  { to: "/analysis?open=fog", label: "Fog Removal", icon: CloudFog },
 ];
 
 const systemLinks = [
@@ -58,12 +60,14 @@ function NavItem({ to, label, icon: Icon, end, expanded }: (typeof primaryLinks)
       end={end}
       data-tip={label}
       className={({ isActive }) =>
-        `relative flex h-10 shrink-0 items-center gap-3 rounded-lg text-[13px] transition-colors ${expanded ? "px-3" : "w-10 justify-center"} ${
-          isActive ? "bg-bg-3 text-text-primary" : "text-text-tertiary hover:bg-bg-3/60 hover:text-text-primary"
+        `relative flex h-9 shrink-0 items-center gap-3 rounded-[10px] text-[13px] font-medium ${expanded ? "px-3" : "w-10 justify-center"} ${
+          isActive
+            ? "bg-accent-blue text-white"
+            : "text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
         }`
       }
     >
-      <Icon size={18} strokeWidth={1.75} className="shrink-0" />
+      <Icon size={17} strokeWidth={1.9} className="shrink-0" />
       {expanded && <span className="truncate">{label}</span>}
     </NavLink>
   );
@@ -97,8 +101,10 @@ export function Sidebar({ user, onSignedOut }: { user?: SessionUser | null; onSi
 
   const Toggle = expanded ? ChevronsLeft : ChevronsRight;
 
-  // One fixed-position label for the collapsed rail: the rail scrolls on
-  // short screens, which would clip a label positioned inside it.
+  // One fixed-position label for the collapsed rail, portalled to <body>: the
+  // rail scrolls on short screens and its backdrop blur makes it the
+  // containing block for fixed children, either of which would clip a label
+  // rendered inside it.
   const [tip, setTip] = useState<{ text: string; top: number } | null>(null);
   function hover(e: MouseEvent<HTMLElement>) {
     if (expanded) return;
@@ -113,23 +119,24 @@ export function Sidebar({ user, onSignedOut }: { user?: SessionUser | null; onSi
       onMouseOver={hover}
       onMouseLeave={() => setTip(null)}
       onScroll={() => setTip(null)}
-      className={`sticky top-0 flex h-screen shrink-0 flex-col overflow-y-auto border-r border-border-1 bg-bg-0 py-4 [scrollbar-width:none] ${
+      className={`glass sticky top-0 z-20 flex h-screen shrink-0 flex-col overflow-y-auto border-r border-border-1 py-4 [scrollbar-width:none] ${
         expanded ? "w-[232px] px-3" : "w-16 items-center"
       }`}
     >
-      {tip && !expanded && (
+      {tip && !expanded && createPortal(
         <span
-          className="pointer-events-none fixed left-[68px] z-50 -translate-y-1/2 whitespace-nowrap rounded-md border border-border-2 bg-bg-3 px-2 py-1 text-[12px] text-text-primary shadow-lg"
+          className="pointer-events-none fixed left-[72px] z-50 -translate-y-1/2 whitespace-nowrap rounded-lg border border-border-2 bg-bg-3 px-2.5 py-1 text-[12px] font-medium text-text-primary shadow-lg"
           style={{ top: tip.top }}
         >
           {tip.text}
-        </span>
+        </span>,
+        document.body,
       )}
       <div className={`mb-5 flex items-center gap-3 ${expanded ? "px-1" : ""}`}>
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-text-primary text-[15px] font-bold text-bg-0">D</div>
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-accent-blue text-[15px] font-bold text-white">D</div>
         {expanded && (
           <div className="min-w-0">
-            <div className="text-[14px] font-semibold text-text-primary">Drishti</div>
+            <div className="text-[15px] font-semibold tracking-tight text-text-primary">Drishti</div>
             <div className="truncate text-[11px] text-text-tertiary">Video intelligence</div>
           </div>
         )}
@@ -141,7 +148,7 @@ export function Sidebar({ user, onSignedOut }: { user?: SessionUser | null; onSi
 
       {expanded && (
         <>
-          <div className="px-3 pb-1.5 pt-5 text-[11px] text-text-tertiary">Analysis modules</div>
+          <div className="px-3 pb-1.5 pt-5 text-[11px] font-semibold text-text-tertiary">Analysis modules</div>
           <nav className="flex flex-col gap-1">
             {moduleLinks.map((l) => <NavItem key={l.to} {...l} expanded />)}
           </nav>
@@ -156,9 +163,9 @@ export function Sidebar({ user, onSignedOut }: { user?: SessionUser | null; onSi
           data-tip="Siren Panel"
           target="_blank"
           rel="noreferrer"
-          className={`relative flex h-10 shrink-0 items-center gap-3 rounded-lg text-[13px] text-text-tertiary hover:bg-bg-3/60 hover:text-text-primary ${expanded ? "px-3" : "w-10 justify-center"}`}
+          className={`relative flex h-9 shrink-0 items-center gap-3 rounded-[10px] text-[13px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary ${expanded ? "px-3" : "w-10 justify-center"}`}
         >
-          <Siren size={18} strokeWidth={1.75} className="shrink-0" />
+          <Siren size={17} strokeWidth={1.9} className="shrink-0" />
           {expanded && <span className="truncate">Siren Panel</span>}
         </a>
       </nav>
@@ -168,7 +175,7 @@ export function Sidebar({ user, onSignedOut }: { user?: SessionUser | null; onSi
         <button
           onClick={toggle}
           aria-label={expanded ? "Collapse navigation" : "Expand navigation"}
-          className={`flex h-9 items-center gap-2 rounded-lg text-[12px] text-text-tertiary hover:bg-bg-3/60 hover:text-text-primary ${expanded ? "px-3" : "w-10 justify-center"}`}
+          className={`flex h-9 items-center gap-2 rounded-[10px] text-[12px] text-text-tertiary hover:bg-white/[0.06] hover:text-text-primary ${expanded ? "px-3" : "w-10 justify-center"}`}
         >
           <Toggle size={16} />
           {expanded && "Collapse"}

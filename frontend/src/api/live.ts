@@ -47,6 +47,8 @@ export interface LiveEvent {
   data?: Record<string, unknown>;
   plate?: string;
   confidence?: number;
+  /** Set when the alarm matched a pattern guards marked false before. */
+  likely_false?: { marks: number; around: string; note: string | null } | null;
 }
 
 export interface AnalysisConfig {
@@ -57,6 +59,7 @@ export interface AnalysisConfig {
   zone_ids: string[];
   behavior: boolean;
   lowlight: boolean;
+  fog?: boolean;
 }
 
 export interface EvidenceBundle {
@@ -93,6 +96,9 @@ export const liveApi = {
   setTalkdownAuto: (auto: boolean) =>
     api.put<{ auto: boolean; speakers: Record<string, number> }>("/api/live/talkdown", { auto }),
   warnNow: (id: string) => api.post<{ reason: string; speakers: number }>(`/api/live/cameras/${id}/talkdown`),
+  verdict: (eventId: string, verdict: "false" | "real", note?: string) =>
+    api.post<{ verdict: string; pattern_marks: number; forgotten: number }>(
+      `/api/live/events/${eventId}/verdict`, { verdict, note: note || null }),
   recentEvents: (limit = 100) => api.get<LiveEvent[]>(`/api/live/events?limit=${limit}`),
   onvifScan: () => api.post<OnvifScanResult>("/api/live/onvif/scan"),
   onvifProfiles: (login: OnvifLogin) => api.post<OnvifProfile[]>("/api/live/onvif/profiles", login),

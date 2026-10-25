@@ -18,6 +18,7 @@ import { Settings } from "./pages/Settings";
 import { SiteMap } from "./pages/SiteMap";
 import { Sensors } from "./pages/Sensors";
 import { AppearanceSearch } from "./pages/AppearanceSearch";
+import { SatelliteCheck } from "./pages/SatelliteCheck";
 import { SystemStatusPage } from "./pages/SystemStatusPage";
 
 export default function App() {
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="/audit" element={<AuditLog />} />
         <Route path="/anpr-search" element={<AnprSearch />} />
         <Route path="/appearance-search" element={<AppearanceSearch />} />
+        <Route path="/satellite" element={<SatelliteCheck />} />
         <Route path="/system" element={<SystemStatusPage />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>

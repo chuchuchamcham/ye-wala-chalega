@@ -41,8 +41,10 @@ cd frontend && npm install && npm run build && cd ..
 python scripts/serve.py
 ```
 
-Open **http://127.0.0.1:8000**. The first screen asks you to create an admin
-account — there is no default password.
+Open **http://127.0.0.1:8000**. There is no sign-in by default: every visitor
+acts as a local administrator. Before the server is reachable on a network
+you do not fully trust, set `DRISHTI_LOGIN=1`; the first screen then asks you
+to create an admin account (there is no default password).
 
 ## Testing it
 
@@ -134,6 +136,11 @@ before to 6 seconds after, then:
 An **acoustic drone sensor** always sounds (`DRONE_SUSPECTED`): a small drone
 is too high and too small for a ground camera to rule out.
 
+A **digging sensor** always sounds too (`DIGGING_SUSPECTED`): a tunnel is
+underground. Its phone page reads the phone's motion sensor; lay the phone
+flat on the ground or a wall, and it reports at least 5 sharp knocks at a
+steady rhythm (0.4–4 s apart), as a shovel, pick or drill makes.
+
 Real sensor hardware reports a trip with one request, using the key shown to
 admins under **Connect**:
 
@@ -142,10 +149,37 @@ curl -X POST http://<post-pc>:8000/api/sensors/hook/<sensor-id> -H "X-Sensor-Key
 ```
 
 The same Connect panel has a QR code for a phone page that does this. For a
-drone sensor it listens to the microphone and reports a loud, steady hum
-held for 1.5 s. That is a stand-in for a real acoustic array, not a drone
-classifier. **Test trip** runs the real check and marks every event it
-produces as a test.
+drone sensor it listens to the microphone and a small trained classifier
+scores each second of sound; it reports when the score stays above 0.5 for
+1.5 s. If the model cannot load, the page falls back to the old rule (a loud,
+steady hum held for 1.5 s). **Test trip** runs the real check and marks every
+event it produces as a test.
+
+**Drone-sound classifier.** 51 features per second of audio (24 mel-band
+spectral shape means and spreads, tonality, level steadiness), computed in
+the browser from the Web Audio analyser, into a 24-unit neural network. It
+runs offline in the phone page; the weights (~15 KB) are inlined in
+`backend/static/sensor.html` and kept in `models/drone_audio/model.json`.
+Training: `python models/drone_audio/train.py` (about 2 minutes on the CPU),
+on part of DADS ([Drone Audio Detection Samples](https://huggingface.co/datasets/geronimobasso/drone-audio-detection-samples),
+MIT on Hugging Face; it bundles other datasets with their own terms, some
+non-commercial). Data goes in the gitignored `models/drone_audio/data/`:
+shards 02 (no-drone), 04, 12 and 30 (drone), about 800 MB. Held-out results,
+one-second windows, threshold 0.5:
+
+| Test set | Drone windows | Background windows | Precision | Recall | False alarms |
+|---|---|---|---|---|---|
+| Held-out shard + blocks (48 kHz-like frames) | 4,623 | 2,394 | 99.5 % | 99.7 % | 0.9 % of background windows |
+| Same, shorter frames | 4,623 | 2,394 | 98.7 % | 99.7 % | 2.6 % |
+| Validation | 1,867 | 2,428 | 98.4 % | 98.1 % | 1.2 % |
+
+Drone clips mixed into background noise at 10 dB SNR: 99.3 % recall.
+**Read these numbers with care.** Test and training clips come from the same
+collection: different files, but often the same drones and microphones,
+mostly close-up. Nothing has been measured on a real phone at a distance in
+open fields, and the background set has no generators, tractors or
+motorbikes, which are the likeliest false alarms on the border. Field-test
+before trusting it.
 
 ### Talk-down warnings
 
@@ -157,6 +191,73 @@ restricted border area. You are being watched on camera. Turn back now." It
 says this at most once every 20 seconds. **Warn now** plays it on demand. Each
 warning is logged as `TALKDOWN_ISSUED`, but only when a speaker is actually
 connected.
+
+### Fog mode
+
+Tick **Fog Mode** in a camera's Configure panel. Frames whose darkest pixels
+are lifted toward grey with flat contrast are counted as foggy and cleared
+of haze before detection (dark channel prior, plain OpenCV, a few
+milliseconds a frame). Clear frames pass through untouched. `FOG_DETECTED`
+is logged once per run. Tested on synthetic fog, not yet on real fog footage.
+
+### False-alarm memory
+
+Each alarm in Live Monitor has **False alarm** and **Real** buttons. When the
+same camera, alarm type and zone has been marked false twice within an hour
+of the same time of day in the last 14 days, a new matching alarm is still
+logged and shown as **LIKELY FALSE**, with the reason, but does not sound the
+siren. Marking one of them **Real** wipes that pattern. A watched person or
+vehicle and suspected sabotage are never silenced. Every verdict goes into
+the tamper-evident log as `ALARM_VERDICT`.
+
+### Where to send the patrol
+
+When alerts come from two or more cameras placed on the Site Map in a row,
+the map draws an amber line to the likely next camera, and the **Where to
+send the patrol** panel says, for example, "Likely next at Gate 3 in about
+2 minutes. Send the patrol to Gate 3 now." If no camera lies ahead it says
+the path leads into a blind spot and marks the point to cover. It is a
+straight-line guess from the last two sightings at the same speed, and the
+panel says so.
+
+### Satellite check
+
+**Satellite Check** compares two free Sentinel-2 images of the same box
+behind the border and marks what changed on the ground: new paths and
+tracks, cleared vegetation, new structures. Cameras cannot see that far.
+It aligns the two images, matches their colour, compares the vegetation
+index (NDVI) and the colour, and lists each changed area with a reason
+("Vegetation cleared, about 12,000 m²"). Two real pairs ship in
+`samples/satellite/` (about 5 MB), so it works offline: Khavda in Kutch,
+where it finds new solar blocks and a new road in a month, and Attari
+farmland at harvest, where almost every field changes. That second one shows
+why pairs should be a week or two apart.
+
+A Kashmir pair ships too: Uri in Baramulla district, about 10 km from the
+LoC. Each pair also carries two street maps (from OpenStreetMap) showing
+where the box is, so the page can show the location offline.
+
+To look at a new place, type its name in **Search any place** (like a map
+site's search box), pick a *before* and an *after* date, and press **Get
+satellite images**. Drishti looks the place up on OpenStreetMap, finds the
+clearest picture within about two weeks of each date, saves the pair and
+checks it, in about a minute. This needs the internet; saved pairs don't.
+
+The same fetch works from the command line, for sector HQ, where you can
+copy the folder to the post. No account is needed: it uses Element84's
+Earth Search catalogue on AWS and reads only the window it needs out of each
+image, about 40 MB for a 4 km box. It asks before anything over 300 MB.
+
+```bash
+python scripts/fetch_sentinel.py --bbox 69.50,23.99,69.58,24.035 \
+    --before 2025-09-25/2025-10-15 --after 2025-11-01/2025-11-30 \
+    --name "Khavda" --id khavda
+```
+
+Limits: a pixel is 10 m, so it shows paths and clearings, never people.
+Clouds block it; the script skips scenes with cloud over the box. A new
+picture comes every 5 days at best, so this is a weekly overview, not an
+alarm. Harvests, floods and drifting sand also count as change.
 
 ### Group gathering
 
@@ -243,9 +344,10 @@ rate — stop the ones you are not watching.
 - **Appearance search is a ranking, not recognition.** On the demo footage
   colour and clothing queries put the right person first; small objects
   (backpacks) often do not. Nothing has been measured on night or thermal video.
-- **The phone drone sensor is a loudness-and-tone rule**, not a trained
-  classifier: generators and motorbikes can trip it. A real deployment
-  would feed a proper acoustic array into the same hook.
+- **The phone drone classifier is only measured on a public dataset**, not
+  in the field (see Sensors). Generators and motorbikes may still trip it,
+  and a phone microphone hears a drone only at short range. A real
+  deployment would feed a proper acoustic array into the same hook.
 - Model weights in `models/` carry their own licences — YOLOv8n is AGPL-3.0
   (Ultralytics).
 

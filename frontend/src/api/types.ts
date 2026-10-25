@@ -188,6 +188,7 @@ export interface CombinedJobRequest {
   zone_ids?: string[];
   behavior?: BehaviorModuleRequest | null;
   lowlight?: LowlightModuleRequest | null;
+  fog?: Record<string, never> | null;
 }
 
 export interface PlateSearchRequest {

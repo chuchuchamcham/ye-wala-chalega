@@ -60,3 +60,6 @@ data/
 # The appearance-search model (about 600 MB) is downloaded once by
 # scripts/download_search_model.py, not committed.
 models/clip/
+
+# /brag launch videos, frames and render scratch
+brag-output/

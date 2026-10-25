@@ -279,10 +279,13 @@ class LiveStreamReader:
         self.is_network_source = self.source.lower().startswith(
             ("rtsp://", "rtsps://", "http://", "https://")
         )
+        # A bare number ("0", "1") is a USB webcam plugged into this machine.
+        self.is_webcam = self.source.strip().isdigit()
         self.loop = loop
         # Pace file playback by default (a file has no natural rate); never
-        # pace a network source, which is already paced by the camera itself.
-        self.pace = (not self.is_network_source) if pace_to_source_fps is None else pace_to_source_fps
+        # pace a network source or a webcam, which run at their own rate.
+        live = self.is_network_source or self.is_webcam
+        self.pace = (not live) if pace_to_source_fps is None else pace_to_source_fps
 
         self.status = LiveStreamStatus()
         self.metrics = ProcessingMetrics()
@@ -346,7 +349,13 @@ class LiveStreamReader:
             # operator hasn't already expressed a preference.
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
-        cap = cv2.VideoCapture(self.source)
+        if self.is_webcam:
+            # DirectShow opens Windows webcams in about a second; the default
+            # backend can take ten.
+            backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+            cap = cv2.VideoCapture(int(self.source.strip()), backend)
+        else:
+            cap = cv2.VideoCapture(self.source)
         if not cap.isOpened():
             cap.release()
             return False

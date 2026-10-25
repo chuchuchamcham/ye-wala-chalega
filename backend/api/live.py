@@ -86,7 +86,7 @@ def _source_missing(session) -> bool:
     does not exist never will. Worth separating so the feed can say which.
     """
     source = session.camera.source
-    if source.startswith(PUSH_SCHEME) or "://" in source:
+    if source.startswith(PUSH_SCHEME) or "://" in source or source.strip().isdigit():
         return False
     return not Path(source).is_file()
 
@@ -136,6 +136,7 @@ class AnalysisConfigRequest(BaseModel):
     zone_ids: list[str] = Field(default_factory=list)
     behavior: bool = False
     lowlight: bool = False
+    fog: bool = False
 
 
 class PhoneCameraRequest(BaseModel):
@@ -246,7 +247,7 @@ def configure_analysis(camera_id: str, req: AnalysisConfigRequest) -> dict:
         person_id=req.person_id, reference_photo_paths=reference_paths,
         reference_set_id=req.reference_set_id if req.person_id else None,
         anpr=req.anpr, target_plate=req.target_plate,
-        zones=zones, behavior=req.behavior, lowlight=req.lowlight,
+        zones=zones, behavior=req.behavior, lowlight=req.lowlight, fog=req.fog,
     )
     session.configure_analysis(spec)
     return session.status_dict()

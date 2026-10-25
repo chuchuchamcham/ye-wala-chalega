@@ -71,6 +71,29 @@ function CameraRow({
   );
 }
 
+function VerdictButtons({ event }: { event: LiveEvent }) {
+  const [done, setDone] = useState<string | null>(null);
+  if (!event.event_id || (event.severity !== "HIGH" && event.severity !== "CRITICAL")) return null;
+  async function send(verdict: "false" | "real") {
+    const note = verdict === "false" ? window.prompt("What was it? (e.g. stray dog, tree shadow) - optional") ?? undefined : undefined;
+    try {
+      const r = await liveApi.verdict(event.event_id!, verdict, note);
+      setDone(verdict === "false"
+        ? `Marked false (${r.pattern_marks} at this place and hour; 2 silence the siren next time)`
+        : r.forgotten ? `Marked real; forgot ${r.forgotten} false marks here` : "Marked real");
+    } catch {
+      setDone("Could not save");
+    }
+  }
+  if (done) return <div className="mt-1 text-[10.5px] text-text-tertiary">{done}</div>;
+  return (
+    <div className="mt-1 flex gap-1.5">
+      <button onClick={() => void send("false")} className="rounded border border-border-2 px-1.5 py-0.5 text-[10.5px] text-text-tertiary hover:text-text-primary">False alarm</button>
+      <button onClick={() => void send("real")} className="rounded border border-border-2 px-1.5 py-0.5 text-[10.5px] text-text-tertiary hover:text-text-primary">Real</button>
+    </div>
+  );
+}
+
 function EventRow({ event }: { event: LiveEvent }) {
   const meta = eventMeta(event.type);
   const Icon = meta.icon;
@@ -86,10 +109,16 @@ function EventRow({ event }: { event: LiveEvent }) {
               SIREN
             </span>
           )}
+          {event.likely_false && (
+            <span className="rounded bg-accent-amber/15 px-1.5 text-[10px] font-bold text-accent-amber">
+              LIKELY FALSE
+            </span>
+          )}
         </div>
         {/* The reason is the point: an operator has to be able to verify or
             dismiss an alert without reverse-engineering a score. */}
         <div className="mt-0.5 text-[11.5px] leading-snug text-text-secondary">{event.reason}</div>
+        <VerdictButtons event={event} />
       </div>
       <div className="shrink-0 text-right">
         <div className="font-mono text-[10.5px] text-text-tertiary">{time}</div>

@@ -36,7 +36,7 @@ export function SessionFooter({
         onClick={() => {
           void authApi.logout().finally(() => onSignedOut?.());
         }}
-        className="w-full rounded-lg border border-border-2 py-1.5 text-[12px] text-text-secondary hover:bg-bg-3 hover:text-text-primary"
+        className="w-full rounded-full bg-bg-3 py-1.5 text-[12px] font-medium text-text-secondary hover:bg-bg-4 hover:text-text-primary"
       >
         Sign out
       </button>
@@ -54,10 +54,10 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-10 flex h-[68px] shrink-0 items-center justify-between border-b border-border-1 bg-bg-1/90 px-6 backdrop-blur-md">
-      <div className="flex flex-col gap-0.5">
-        <h1 className="text-[18px] font-semibold tracking-tight text-text-primary">{title}</h1>
-        {subtitle && <p className="text-[12px] text-text-tertiary">{subtitle}</p>}
+    <header className="glass sticky top-0 z-10 flex min-h-[76px] shrink-0 items-center justify-between gap-4 border-b border-border-1 px-8 py-3 max-[1366px]:px-6">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h1 className="truncate text-[24px] font-bold leading-tight tracking-[-0.025em] text-text-primary">{title}</h1>
+        {subtitle && <p className="truncate text-[13px] text-text-secondary">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </header>
@@ -65,5 +65,5 @@ export function PageHeader({
 }
 
 export function PageBody({ children, narrow }: { children: ReactNode; narrow?: boolean }) {
-  return <div className={`flex-1 p-6 max-[1366px]:p-5 ${narrow ? "max-w-[1040px]" : ""}`}>{children}</div>;
+  return <div className={`page-enter flex-1 p-8 max-[1366px]:p-6 ${narrow ? "max-w-[1040px]" : ""}`}>{children}</div>;
 }

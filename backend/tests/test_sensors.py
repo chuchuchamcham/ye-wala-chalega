@@ -193,3 +193,15 @@ def test_spread_keeps_both_ends():
     items = list(range(20))
     picked = _spread(items, 5)
     assert picked[0] == 0 and picked[-1] == 19 and len(picked) == 5
+
+
+def test_digging_alert_sounds_without_a_camera_check(tmp_path):
+    cam = FakeSession()
+    reg, fusion = make(tmp_path, [cam], look=lambda img: (0, 0, 0.0))
+    sensor = reg.add("Fence post 4", "seismic", "Gate 1")
+    assert not sensor.public()["checkable"]
+    result = fusion.trigger(sensor, detail="6 steady strikes about 1.2 s apart", background=False)
+    assert result["status"] == "alarm"
+    event = cam.emitted[0]
+    assert event["type"] == "DIGGING_SUSPECTED" and event["alarm"]
+    assert "Digging sensor 'Fence post 4'" in event["reason"] and "tunnelling" in event["reason"]

@@ -52,6 +52,9 @@ EVENT_SEVERITY: dict[str, str] = {
     # A drone is too small and high for the ground cameras to confirm, so an
     # acoustic drone alert sounds on the sensor's word alone.
     "DRONE_SUSPECTED": HIGH,
+    # Rhythmic ground vibration: someone digging, possibly a tunnel. Cameras
+    # cannot see underground, so it sounds on the sensor's word.
+    "DIGGING_SUSPECTED": HIGH,
     "SENSOR_TRIGGERED": MEDIUM,
     "SENSOR_ALARM_UNCONFIRMED": LOW,  # MEDIUM when it repeats; see severity_for
     # Something worth an operator's attention, but not an alarm.
@@ -72,10 +75,12 @@ EVENT_SEVERITY: dict[str, str] = {
     # Routine observations that belong in the log, not in anyone's face.
     "VEHICLE_DETECTED": INFO,
     "LOW_LIGHT": INFO,
+    "FOG_DETECTED": INFO,
     "CAMERA_ONLINE": INFO,
     "CAMERA_VIEW_RESTORED": INFO,
     # A record that a spoken warning was played, not an alarm in itself.
     "TALKDOWN_ISSUED": INFO,
+    "ALARM_VERDICT": INFO,
 }
 
 # What an external siren/alarm responds to. Deliberately narrow: an alarm that
@@ -203,6 +208,8 @@ def describe_event(event: dict) -> str:
         return f"Vehicle detected ({who})"
     if etype == "LOW_LIGHT":
         return "Low-light conditions detected; image enhancement applied"
+    if etype == "FOG_DETECTED":
+        return "Fog detected; frames are cleared of haze before detection"
     if etype == "CAMERA_OFFLINE":
         return "Camera stopped responding"
     if etype == "CAMERA_DEGRADED":
@@ -229,7 +236,7 @@ def describe_event(event: dict) -> str:
         trigger = str(data.get("trigger") or "").replace("_", " ").lower()
         why = f"automatically, after {trigger}" if data.get("auto") else f"by {data.get('by') or 'an operator'}"
         return f"Spoken warning played at the camera's speaker ({why})"
-    if etype.startswith(("SENSOR_", "DRONE_")):
+    if etype.startswith(("SENSOR_", "DRONE_", "DIGGING_")):
         return _describe_sensor_event(etype, data)
     return etype.replace("_", " ").capitalize()
 
@@ -258,6 +265,9 @@ def _describe_sensor_event(etype: str, data: dict) -> str:
         repeat = data.get("repeat_count", 1)
         again = f", {repeat} times in {data.get('repeat_window_min', 10)} minutes" if repeat >= 2 else ""
         return f"{sensor} triggered{test}{again}; nothing seen on {camera} (animal, wind or fault?)"
+    if etype == "DIGGING_SUSPECTED":
+        detail = f" ({data['detail']})" if data.get("detail") else ""
+        return f"{sensor} felt rhythmic ground vibration like digging{test}{detail}; check for tunnelling"
     if etype == "DRONE_SUSPECTED":
         return f"{sensor} heard a drone-like sound{test}; ground cameras cannot confirm a drone, look up"
     return etype.replace("_", " ").capitalize()

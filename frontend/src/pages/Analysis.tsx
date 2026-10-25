@@ -1,4 +1,4 @@
-import { AlertTriangle, Eye, Info, Moon, Search, ShieldAlert, Sparkles } from "lucide-react";
+import { AlertTriangle, CloudFog, Eye, Info, Search, ShieldAlert, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
@@ -18,7 +18,7 @@ interface ModuleFlags {
   anpr: boolean;
   zone: boolean;
   behavior: boolean;
-  lowlight: boolean;
+  fog: boolean;
 }
 
 const OPEN_PARAM_MAP: Record<string, keyof ModuleFlags | null> = {
@@ -26,7 +26,7 @@ const OPEN_PARAM_MAP: Record<string, keyof ModuleFlags | null> = {
   anpr: "anpr",
   zone: "zone",
   behavior: "behavior",
-  lowlight: "lowlight",
+  fog: "fog",
   human_detection: null,
   vehicle_detection: null,
 };
@@ -38,7 +38,7 @@ export function Analysis() {
   const [step, setStep] = useState(1);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [video, setVideo] = useState<VideoUpload | null>(null);
-  const [modules, setModules] = useState<ModuleFlags>({ person_id: false, anpr: false, zone: false, behavior: false, lowlight: false });
+  const [modules, setModules] = useState<ModuleFlags>({ person_id: false, anpr: false, zone: false, behavior: false, fog: false });
   const [deepLinkNote, setDeepLinkNote] = useState<string | null>(null);
 
   const [referenceSetId, setReferenceSetId] = useState<string | null>(null);
@@ -110,7 +110,7 @@ export function Analysis() {
           },
         };
       }
-      if (modules.lowlight) req.lowlight = {};
+      if (modules.fog) req.fog = {};
 
       const job = await startCombinedJob(req);
       navigate(`/processing/${job.job_id}`);
@@ -167,7 +167,7 @@ export function Analysis() {
               <ModuleCard icon={Search} title="ANPR / Plate Search" description="Detect, read and search vehicle registration plates." selected={modules.anpr} onToggle={() => toggleModule("anpr")} />
               <ModuleCard icon={ShieldAlert} title="Zone Intrusion" description="Detect entry, exit and dwell inside restricted areas." selected={modules.zone} onToggle={() => toggleModule("zone")} />
               <ModuleCard icon={Sparkles} title="Behavioral Analytics" description="Detect loitering, abnormal movement and direction changes." selected={modules.behavior} onToggle={() => toggleModule("behavior")} />
-              <ModuleCard icon={Moon} title="Low-Light Enhancement" description="Automatically improve genuinely underexposed footage." selected={modules.lowlight} onToggle={() => toggleModule("lowlight")} />
+              <ModuleCard icon={CloudFog} title="Fog Removal" description="Clear haze from foggy footage before detection." selected={modules.fog} onToggle={() => toggleModule("fog")} />
             </div>
           </Panel>
         )}
@@ -223,12 +223,12 @@ export function Analysis() {
               </Panel>
             )}
 
-            {modules.lowlight && (
-              <Panel title="Low-Light Enhancement">
+            {modules.fog && (
+              <Panel title="Fog Removal">
                 <div className="flex items-center justify-between rounded-md border border-border-1 bg-bg-3 px-4 py-3">
                   <div>
-                    <div className="text-[12.5px] font-semibold text-text-primary">Auto Enhancement</div>
-                    <p className="mt-1 text-[11.5px] text-text-tertiary">Automatically enhance only footage that requires low-light correction.</p>
+                    <div className="text-[12.5px] font-semibold text-text-primary">Auto Dehaze</div>
+                    <p className="mt-1 text-[11.5px] text-text-tertiary">Only frames detected as foggy are cleared; clear frames pass through untouched.</p>
                   </div>
                   <span className="rounded-full border border-accent-green/35 bg-accent-green/12 px-2.5 py-1 text-[10.5px] font-semibold text-accent-green">DEFAULT ON</span>
                 </div>
@@ -249,7 +249,7 @@ export function Analysis() {
               {modules.anpr && <ReviewChip label={targetPlate ? `ANPR — Search "${targetPlate.toUpperCase()}"` : "ANPR (general)"} />}
               {modules.zone && <ReviewChip label={`Zone Intrusion (${zones.length} zone${zones.length === 1 ? "" : "s"})`} />}
               {modules.behavior && <ReviewChip label="Behavioral Analytics" />}
-              {modules.lowlight && <ReviewChip label="Low-Light Enhancement" />}
+              {modules.fog && <ReviewChip label="Fog Removal" />}
               {selectedCount === 0 && <span className="text-[12.5px] text-text-tertiary">No modules selected</span>}
             </div>
 

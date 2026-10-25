@@ -4,7 +4,7 @@ import { Panel } from "../components/common/Panel";
 import type { SessionUser } from "../api/auth";
 import { ApiError } from "../api/client";
 import { liveApi, type LiveCamera, type LiveEvent } from "../api/live";
-import { mapApi, type SiteMap as SiteMapState } from "../api/map";
+import { mapApi, type PathPrediction, type SiteMap as SiteMapState } from "../api/map";
 import { eventMeta } from "../lib/eventMeta";
 import { SitePicker } from "../components/dashboard/SitePicker";
 import { useSiteChoice } from "../hooks/useSiteChoice";
@@ -60,6 +60,7 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
   const [dragging, setDragging] = useState<{ name: string; x: number; y: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [prediction, setPrediction] = useState<PathPrediction | null>(null);
   const [site, chooseSite] = useSiteChoice();
   const [naming, setNaming] = useState<{ mode: "add" | "rename"; value: string } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -67,7 +68,11 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
 
   const load = useCallback(async () => {
     try {
-      const [m, c, e] = await Promise.all([mapApi.get(site), liveApi.listCameras(), liveApi.recentEvents(300)]);
+      const [m, c, e, p] = await Promise.all([
+        mapApi.get(site), liveApi.listCameras(), liveApi.recentEvents(300),
+        mapApi.prediction(site).catch(() => ({ prediction: null })),
+      ]);
+      setPrediction(p.prediction);
       setMap(m);
       setCameras(c);
       setEvents(e);
@@ -322,6 +327,19 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
                     vectorEffect="non-scaling-stroke" markerEnd="url(#path-arrow)" />
                 );
               })}
+              {prediction && prediction.from[1] in positions && (() => {
+                const [x1, y1] = positions[prediction.from[1]];
+                const [x2, y2] = prediction.point;
+                return (
+                  <>
+                    <line x1={x1 * 100} y1={y1 * 100} x2={x2 * 100} y2={y2 * 100}
+                      stroke="var(--color-accent-amber)" strokeWidth={2.5} strokeDasharray="2 5"
+                      vectorEffect="non-scaling-stroke" />
+                    <circle cx={x2 * 100} cy={y2 * 100} r={2.2} fill="none" stroke="var(--color-accent-amber)"
+                      strokeWidth={2} vectorEffect="non-scaling-stroke" className="animate-pulse" />
+                  </>
+                );
+              })()}
             </svg>
 
             {placedNames.map((name) => {
@@ -349,6 +367,19 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
         </div>
 
         <div className="flex flex-col gap-4">
+          <Panel title="Where to send the patrol" meta="prediction">
+            {prediction ? (
+              <div className="flex flex-col gap-1.5 text-[12.5px]">
+                <div className="font-semibold text-accent-amber">{prediction.advice}</div>
+                <div className="text-text-secondary">Path so far: {prediction.trail.join(" → ")}</div>
+                <div className="text-[11.5px] text-text-tertiary">Worked out from a {prediction.basis}. A first guess for where to look, not a certainty.</div>
+              </div>
+            ) : (
+              <div className="text-[12.5px] text-text-tertiary">
+                Appears when alerts come from two or more cameras placed on this map in a row.
+              </div>
+            )}
+          </Panel>
           <Panel title="Watched path" meta="last 30 min">
             {path.length === 0 ? (
               <div className="text-[12.5px] text-text-tertiary">No watched person or vehicle has been seen recently.</div>

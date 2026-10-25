@@ -31,5 +31,5 @@ export const sensorsApi = {
 /** Event types the sensor fusion raises. */
 export const SENSOR_EVENT_TYPES = new Set([
   "SENSOR_TRIGGERED", "SENSOR_ALARM_CONFIRMED", "SENSOR_ALARM_UNVERIFIED",
-  "SENSOR_ALARM_UNCONFIRMED", "DRONE_SUSPECTED",
+  "SENSOR_ALARM_UNCONFIRMED", "DRONE_SUSPECTED", "DIGGING_SUSPECTED",
 ]);

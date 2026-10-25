@@ -1,6 +1,6 @@
 import {
   AlertTriangle, Car, Clock, Crosshair, Eye, Footprints, Gauge, MapPinOff,
-  Megaphone, Navigation, Plane, RadioTower, ShieldAlert, Sparkles, TriangleAlert, Users, type LucideIcon,
+  Megaphone, Navigation, Shovel, Plane, RadioTower, ShieldAlert, Sparkles, TriangleAlert, Users, type LucideIcon,
 } from "lucide-react";
 
 export type Severity = "red" | "amber" | "green" | "blue" | "neutral";
@@ -42,6 +42,7 @@ const REGISTRY: Record<string, EventMeta> = {
   // restricted zone, so the label stays neutral - the event's own reason line
   // says which of the two actually happened.
   TARGET_BEHAVIOR_ALERT: { label: "Behaviour Escalation", severity: "red", icon: ShieldAlert },
+  FOG_DETECTED: { label: "Fog Detected", severity: "blue", icon: Sparkles },
   LOW_LIGHT: { label: "Low-Light Detected", severity: "blue", icon: Sparkles },
   // Sentinel (backend/live/tamper.py and the camera health monitor).
   CAMERA_TAMPERED: { label: "Camera Tampering", severity: "red", icon: ShieldAlert },
@@ -53,6 +54,7 @@ const REGISTRY: Record<string, EventMeta> = {
   SENSOR_ALARM_UNVERIFIED: { label: "Sensor Alarm Unchecked", severity: "red", icon: RadioTower },
   SENSOR_ALARM_UNCONFIRMED: { label: "Sensor Trip, Nothing Seen", severity: "neutral", icon: RadioTower },
   TALKDOWN_ISSUED: { label: "Spoken Warning Played", severity: "blue", icon: Megaphone },
+  DIGGING_SUSPECTED: { label: "Possible Digging / Tunnel", severity: "red", icon: Shovel },
   DRONE_SUSPECTED: { label: "Possible Drone", severity: "red", icon: Plane },
   // AI analyst records (backend/agent). Always informational: the analyst
   // explains and proposes, it never raises an alarm.

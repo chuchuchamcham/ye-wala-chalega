@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from backend.core.dehaze import dehaze
+
 import cv2
 
 from backend.config import (
@@ -135,6 +137,9 @@ class OrchestratorRequest:
     behavior_config: BehaviorConfig | None = None
 
     enable_lowlight: bool = False
+    # Fog mode (core/dehaze.py): clears haze before detection, only on frames
+    # that are actually foggy.
+    enable_dehaze: bool = False
     lowlight_config: LowLightConfig | None = None
 
     tracker_config: TrackerConfig | None = None
@@ -144,6 +149,9 @@ class OrchestratorRequest:
     # as (track_id, coco_class_id, bbox) tuples. Group counting and search
     # crops read it; nothing in the analysis depends on it.
     observe_tracks: Callable[[object, list[tuple[int, int, tuple[int, int, int, int]]]], None] | None = None
+    # Live only: a core.motion.MotionGate. When set, the detectors skip frames
+    # with no movement and nothing tracked. Forensic runs look at every frame.
+    motion_gate: object | None = None
 
 
 @dataclass
@@ -246,6 +254,8 @@ class CombinedPipeline:
             modules_run.append("behavior")
         if req.enable_lowlight:
             modules_run.append("lowlight")
+        if req.enable_dehaze:
+            modules_run.append("fog")
         if not modules_run:
             raise OrchestratorError("at least one module must be enabled")
 
@@ -322,6 +332,7 @@ class CombinedPipeline:
         behavior_alert_until: dict[int, int] = {}
         track_class: dict[int, int] = {}
         low_light_notified = False
+        fog_notified = False
         low_light_frame_count = 0
         enhanced_frame_count = 0
         person_face_inference_count = 0
@@ -380,6 +391,7 @@ class CombinedPipeline:
                     device=self.tracker_config.device,
                 )
 
+            was_tracking = False
             try:
                 for frame in reader:
                     # Events appended during this frame are everything after
@@ -400,9 +412,21 @@ class CombinedPipeline:
                                 })
                         if ll_info.enhanced:
                             enhanced_frame_count += 1
+                    if req.enable_dehaze:
+                        frame.image, fog_info = dehaze(frame.image)
+                        if fog_info.foggy and not fog_notified:
+                            fog_notified = True
+                            all_events.append({
+                                "event_id": next_event_id(), "type": "FOG_DETECTED", "track_id": None,
+                                "frame_index": frame.index, "timestamp_sec": frame.timestamp_sec,
+                                "data": {"black_level": fog_info.haze, "note": "fog detected; frames are cleared before detection"},
+                            })
 
                     tracks_by_id = {}
-                    if tracker is not None:
+                    detect = True
+                    if req.motion_gate is not None:
+                        detect = req.motion_gate.should_run(frame.image, frame.timestamp_sec, tracking=bool(was_tracking))
+                    if tracker is not None and detect:
                         tracks = tracker.update(frame.image)
                         tracks_by_id = {t.track_id: t for t in tracks}
                         for tid, t in tracks_by_id.items():
@@ -413,7 +437,7 @@ class CombinedPipeline:
 
                     # ---------------- person_id (dedicated BoT-SORT+OSNet tracker) ----------------
                     if req.enable_person_id:
-                        person_tracks = person_tracker.update(frame.image)
+                        person_tracks = person_tracker.update(frame.image) if detect else []
                         person_tracks_by_id = {t.track_id: t for t in person_tracks}
 
                         # face recognition: identity CONFIRMATION (periodic, not continuous)
@@ -644,6 +668,8 @@ class CombinedPipeline:
                             else:
                                 lines = ["BEHAVIOR ALERT", f"{_BEHAVIOR_LABEL[ev.type]} - {cname} #{ev.track_id}", format_timestamp(ev.timestamp_sec)]
                             active_banners.append((lines, _BEHAVIOR_BANNER_COLOR[ev.type], frame.index + banner_frames))
+
+                    was_tracking = bool(tracks_by_id) or (req.enable_person_id and bool(person_tracks_by_id))
 
                     # ---------------- observers ----------------
                     # Before anything is drawn, so crops taken here are clean.

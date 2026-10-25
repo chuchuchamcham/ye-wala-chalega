@@ -1,37 +1,50 @@
 @import "tailwindcss";
 
-/* Drishti design tokens - charcoal operations-center theme.
-   Neutral charcoal surfaces, white for primary text and active navigation,
-   one blue accent for "information/active", and otherwise colour only for
-   meaning: red=threat/alarm, amber=warning, green=healthy. */
+/* Drishti design tokens - Apple-style dark interface.
+   Values follow Apple's dark-mode system palette: true-black canvas, layered
+   grouped grays for surfaces, hairline translucent separators, and the system
+   tint colours used only for meaning: red=threat/alarm, orange/amber=warning,
+   green=healthy, blue=information/active. */
 @theme {
-  --font-sans: Inter, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
+  --font-sans: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, Inter, "Segoe UI Variable", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 
-  --color-bg-0: #0c0c0d;
-  --color-bg-1: #111112;
-  --color-bg-2: #1a1a1b;
-  --color-bg-3: #222224;
-  --color-bg-4: #2a2a2d;
-  --color-border-1: #262628;
-  --color-border-2: #313134;
-  --color-border-strong: #424246;
+  /* Solid, opaque values throughout: translucent borders and surfaces blend
+     into whatever sits behind them and read as soft, smudged edges. */
+  --color-bg-0: #000000;
+  --color-bg-1: #08080a;
+  --color-bg-2: #141416;
+  --color-bg-3: #222225;
+  --color-bg-4: #313135;
+  --color-border-1: #242427;
+  --color-border-2: #323236;
+  --color-border-strong: #48484d;
 
-  --color-text-primary: #ededee;
-  --color-text-secondary: #a3a3a8;
-  --color-text-tertiary: #75757b;
-  --color-text-disabled: #4f4f54;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #b4b4ba;
+  --color-text-tertiary: #85858c;
+  --color-text-disabled: #505055;
 
-  --color-accent-blue: #5b9cf8;
-  --color-accent-cyan: #5eead4;
-  --color-accent-red: #ef4444;
-  --color-accent-amber: #f5b041;
-  --color-accent-green: #34d399;
-  --color-accent-magenta: #c084fc;
-  --color-accent-orange: #fb923c;
+  --color-accent-blue: #0a84ff;
+  --color-accent-cyan: #64d2ff;
+  --color-accent-red: #ff453a;
+  --color-accent-amber: #ff9f0a;
+  --color-accent-green: #30d158;
+  --color-accent-magenta: #bf5af2;
+  --color-accent-orange: #ff9f0a;
 
-  --color-accent-hover: #7cb1fa;
-  --color-on-accent: #06152b;
+  --color-accent-hover: #409cff;
+  --color-on-accent: #ffffff;
+
+  /* Softer, continuous-feeling corners throughout. */
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.5rem;
+
+  --shadow-lg: 0 8px 20px -6px rgba(0, 0, 0, 0.7);
+
+  --ease-apple: cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 html, body, #root { height: 100%; }
@@ -39,21 +52,50 @@ body {
   background: var(--color-bg-1);
   color: var(--color-text-primary);
   font-family: var(--font-sans);
-  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-::selection { background: rgba(91, 156, 248, 0.35); }
+h1, h2, h3 { letter-spacing: -0.02em; }
+
+::selection { background: rgba(10, 132, 255, 0.4); }
+
+@layer base {
+  button, a, input, select, textarea {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-duration: 180ms;
+    transition-timing-function: var(--ease-apple);
+  }
+  button:not(:disabled):active { transform: scale(0.98); }
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.55);
+  }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--color-accent-blue);
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.28);
+  }
+  input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color: var(--color-accent-blue); }
+}
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--color-border-2); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); background-clip: padding-box; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 8px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.24); background-clip: padding-box; }
 
 .tabular-nums { font-variant-numeric: tabular-nums; }
 
-/* Flat panel surface shared by Panel, MetricCard and friends. */
+/* Card surface shared by Panel, MetricCard and friends: flat and opaque, with
+   the edge drawn by the card's own 1px border rather than a soft shadow. */
 .surface { background: var(--color-bg-2); }
+
+/* Chrome for the sidebar and sticky headers. Opaque rather than frosted:
+   blurring the content scrolling underneath is what made the page smudgy. */
+.glass { background: var(--color-bg-0); }
 
 @keyframes bw-shimmer {
   0% { background-position: -200px 0; }
@@ -70,3 +112,14 @@ body {
   100% { margin-left: 100%; }
 }
 .progress-indeterminate { width: 30%; animation: bw-indeterminate 1.3s ease-in-out infinite; }
+
+@keyframes bw-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.page-enter { animation: bw-rise 420ms var(--ease-apple) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .skeleton, .progress-indeterminate { animation: none; }
+  button:not(:disabled):active { transform: none; }
+}

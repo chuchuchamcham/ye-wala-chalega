@@ -88,6 +88,10 @@ class LowlightModuleRequest(BaseModel):
     config: dict | None = None
 
 
+class FogModuleRequest(BaseModel):
+    """Fog removal (core/dehaze.py) has no tunables; presence turns it on."""
+
+
 class CombinedJobRequest(BaseModel):
     video_id: str
     person_id: PersonIdModuleRequest | None = None
@@ -95,6 +99,7 @@ class CombinedJobRequest(BaseModel):
     zone_ids: list[str] = []
     behavior: BehaviorModuleRequest | None = None
     lowlight: LowlightModuleRequest | None = None
+    fog: FogModuleRequest | None = None
 
 
 class PlateSearchRequest(BaseModel):

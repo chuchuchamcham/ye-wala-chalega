@@ -301,3 +301,23 @@ def test_final_release_gate_all_five_modules_combined_through_api():
     assert out_frames == src_frames
     assert abs(out_fps - src_fps) < 0.5
     tmp_path.unlink()
+
+
+def test_fog_removal_runs_as_a_forensic_module():
+    video_id = _upload_video(PERSON_VIDEO)
+    resp = client.post("/api/jobs", json={"video_id": video_id, "fog": {}, "behavior": {}})
+    assert resp.status_code == 200, resp.text
+
+    job = _poll_job(resp.json()["job_id"])
+    assert job["status"] == "done", job.get("error")
+    assert set(job["summary"]["modules_run"]) == {"behavior", "fog"}
+
+
+def test_fog_removal_alone_is_a_valid_job():
+    video_id = _upload_video(PERSON_VIDEO)
+    resp = client.post("/api/jobs", json={"video_id": video_id, "fog": {}})
+    assert resp.status_code == 200, resp.text
+
+    job = _poll_job(resp.json()["job_id"])
+    assert job["status"] == "done", job.get("error")
+    assert job["summary"]["modules_run"] == ["fog"]

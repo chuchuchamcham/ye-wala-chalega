@@ -19,7 +19,7 @@ export function Panel({
     <div className={`surface rounded-xl border border-border-1 ${className}`}>
       {title && (
         <div className="flex items-center justify-between px-5 pb-1 pt-4">
-          <h2 className="text-[14px] font-semibold text-text-primary">{title}</h2>
+          <h2 className="text-[15px] font-semibold tracking-tight text-text-primary">{title}</h2>
           <div className="flex items-center gap-2">
             {meta && <span className="text-[11px] text-text-tertiary">{meta}</span>}
             {actions}
@@ -32,7 +32,7 @@ export function Panel({
 }
 
 export function SectionTitle({ children }: { children: ReactNode }) {
-  return <div className="mb-3 text-[12.5px] font-bold uppercase tracking-wide text-text-secondary">{children}</div>;
+  return <div className="mb-3 text-[13px] font-semibold tracking-tight text-text-secondary">{children}</div>;
 }
 
 export function KeyValueRow({ label, value }: { label: string; value: ReactNode }) {

@@ -49,9 +49,12 @@ SENSOR_KINDS: dict[str, str] = {
     "radar": "Ground radar",
     "pir": "Motion sensor",
     "acoustic_drone": "Acoustic drone sensor",
+    "seismic": "Digging sensor",
 }
 # Kinds a ground camera cannot confirm or rule out.
-UNCHECKABLE_KINDS = frozenset({"acoustic_drone"})
+# Kinds a ground camera cannot confirm or rule out, and the event each raises:
+# a drone is too small and high, and a tunnel is underground.
+UNCHECKABLE_KINDS = {"acoustic_drone": "DRONE_SUSPECTED", "seismic": "DIGGING_SUSPECTED"}
 
 PERSON_CLASS = 0
 VEHICLE_CLASSES = (2, 3, 5, 7)
@@ -232,7 +235,7 @@ class SensorFusion:
 
         if sensor.kind in UNCHECKABLE_KINDS:
             try:
-                event = self._emit(sensor, "DRONE_SUSPECTED", base)
+                event = self._emit(sensor, UNCHECKABLE_KINDS[sensor.kind], base)
             finally:
                 with self._lock:
                     self._checking.discard(sensor.sensor_id)
