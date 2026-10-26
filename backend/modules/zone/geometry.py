@@ -11,6 +11,7 @@ is processed/output at a different resolution.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -77,6 +78,23 @@ def point_in_polygon(point: tuple[float, float], polygon: list[tuple[float, floa
                 inside = not inside
         x1, y1 = x2, y2
     return inside
+
+
+def distance_to_polygon(point: tuple[float, float], polygon: list[tuple[float, float]]) -> float:
+    """0 for a point inside the polygon, else the distance to its nearest
+    edge, in the polygon's own units."""
+    if point_in_polygon(point, polygon):
+        return 0.0
+    px, py = point
+    best = float("inf")
+    x1, y1 = polygon[-1]
+    for x2, y2 in polygon:
+        dx, dy = x2 - x1, y2 - y1
+        length_sq = dx * dx + dy * dy
+        t = 0.0 if length_sq == 0 else max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / length_sq))
+        best = min(best, math.hypot(px - (x1 + t * dx), py - (y1 + t * dy)))
+        x1, y1 = x2, y2
+    return best
 
 
 def footpoint(bbox: tuple[float, float, float, float]) -> tuple[float, float]:

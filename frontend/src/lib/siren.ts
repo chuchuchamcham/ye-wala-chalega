@@ -74,6 +74,22 @@ export async function playSiren(durationSec: number = DEFAULT_SECONDS): Promise<
   }
 }
 
+/**
+ * Let later alarms play: browsers only allow audio after a user gesture, so
+ * resume the audio context on the operator's first click or key press
+ * anywhere, rather than waiting for them to find the "enable sound" banner.
+ */
+export function unlockAudioOnFirstGesture(): void {
+  const unlock = () => {
+    const audio = getContext();
+    if (audio && audio.state === "suspended") void audio.resume();
+    window.removeEventListener("pointerdown", unlock);
+    window.removeEventListener("keydown", unlock);
+  };
+  window.addEventListener("pointerdown", unlock);
+  window.addEventListener("keydown", unlock);
+}
+
 /** Short double-buzz where one is available. Silent on desktop, by design. */
 export function vibrateAlert(): void {
   try {

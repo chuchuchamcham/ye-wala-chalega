@@ -5,14 +5,13 @@ into it: analyze_brightness() is cheap enough to run on every frame, and
 enhance_frame() only ever touches frames analyze_brightness() classified
 LOW_LIGHT - bright footage is never processed.
 
-Backend note: "fast" (CLAHE on LAB's L channel + adaptive gamma) is the only
-backend actually implemented. "zero_dce" is a recognized config value with a
-real extension point (see _enhance_zero_dce below), but no Zero-DCE++
-model/weights ship with this project and none were fetched to add one - that
-would mean downloading and pinning a new model dependency without first
-verifying it against this environment, which the task explicitly said not to
-do. Selecting "zero_dce" degrades gracefully to "fast" with a reported
-fallback_reason rather than crashing or silently pretending to run it.
+Backends: "fast" (the default) is CLAHE on LAB's L channel plus adaptive
+gamma. "zero_dce" is Zero-DCE++, a small network that predicts a brightening
+curve for every pixel - see core/zero_dce.py, and LowLightConfig.backend for
+why it is not the default (slower, and worse for detection on the demo
+clips). If Zero-DCE++ cannot load (weights file missing, torch unavailable)
+the frame is enhanced with "fast" and the reason is reported in
+fallback_reason, never a crash.
 """
 from __future__ import annotations
 
@@ -110,11 +109,14 @@ def enhance_fast(image: np.ndarray, config: LowLightConfig) -> np.ndarray:
     return cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
 
 
+_zero_dce_failures: dict[str, str] = {}
+
+
 def _enhance_zero_dce(image: np.ndarray, config: LowLightConfig) -> np.ndarray:
-    raise NotImplementedError(
-        "zero_dce backend has no bundled model/weights in this project; "
-        "process_frame() falls back to 'fast' rather than calling this."
-    )
+    """Raises if the model cannot be loaded; process_frame() falls back."""
+    from backend.core.zero_dce import shared_model
+
+    return shared_model(config.zero_dce_model_path, config.zero_dce_work_dim).enhance(image)
 
 
 def process_frame(image: np.ndarray | None, config: LowLightConfig) -> tuple[np.ndarray, EnhancementInfo]:
@@ -131,14 +133,23 @@ def process_frame(image: np.ndarray | None, config: LowLightConfig) -> tuple[np.
 
     backend = config.backend
     fallback_reason = None
-    if backend == "zero_dce":
-        fallback_reason = "zero_dce backend has no bundled model in this environment; used 'fast' instead"
-        backend = "fast"
-
-    if backend != "fast":
+    if backend not in ("fast", "zero_dce"):
         raise ValueError(f"unknown lowlight backend: {config.backend!r}")
 
-    enhanced = enhance_fast(image, config)
+    enhanced = None
+    if backend == "zero_dce":
+        # A model that failed to load once is not retried on every frame.
+        key = str(config.zero_dce_model_path)
+        fallback_reason = _zero_dce_failures.get(key)
+        if fallback_reason is None:
+            try:
+                enhanced = _enhance_zero_dce(image, config)
+            except Exception as exc:
+                fallback_reason = _zero_dce_failures[key] = f"zero_dce unavailable ({exc}); used 'fast' instead"
+        if enhanced is None:
+            backend = "fast"
+    if enhanced is None:
+        enhanced = enhance_fast(image, config)
     after_stats = analyze_brightness(enhanced, config)
     return enhanced, EnhancementInfo(
         classification=stats.classification, enhanced=True, backend_used=backend,

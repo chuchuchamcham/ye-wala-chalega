@@ -78,3 +78,54 @@ def test_labels_skip_comments_and_group_runs(tmp_path):
     runs = evaluate.group_runs(labels)
     assert len(runs) == 2
     assert len(runs[0].labels) == 2 and runs[1].lowlight is True
+
+
+def _behavior_run(labels, events):
+    run = evaluate.Run(module="behavior", clip="c.mp4", reference="", zone="", lowlight=False)
+    run.labels = labels
+    run.events = events
+    return run
+
+
+def test_behaviour_occurrences_match_once_and_by_type():
+    L = evaluate.Label
+    labels = [
+        L("c.mp4", "behavior", "LOITERING", 10.0, 20.0),
+        L("c.mp4", "behavior", "ABNORMAL_SPEED", 30.0, 32.0),
+        L("c.mp4", "behavior", "ABNORMAL_SPEED", 50.0, 52.0),
+    ]
+    events = [
+        {"type": "LOITERING", "timestamp_sec": 18.0},
+        {"type": "LOITERING", "timestamp_sec": 19.0},       # second alert, same window: false alarm
+        {"type": "ABNORMAL_SPEED", "timestamp_sec": 31.5},
+        {"type": "LOITERING", "timestamp_sec": 51.0},       # wrong type for the 50-52 s label
+    ]
+    s = evaluate.score_behavior(_behavior_run(labels, events), tolerance=1.0)
+    caught = {(o["type"], o["label"].start_sec): o["detected_at"] for o in s["occurrences"]}
+    assert caught == {("LOITERING", 10.0): 18.0, ("ABNORMAL_SPEED", 30.0): 31.5, ("ABNORMAL_SPEED", 50.0): None}
+    assert sorted(s["false_alarms"]) == [("LOITERING", 19.0), ("LOITERING", 51.0)]
+
+
+def test_behaviour_none_rows_only_count_false_alarms():
+    L = evaluate.Label
+    s = evaluate.score_behavior(
+        _behavior_run([L("c.mp4", "behavior", "none")], [{"type": "SUDDEN_DIRECTION_CHANGE", "timestamp_sec": 3.0}]),
+        tolerance=1.0,
+    )
+    assert s["occurrences"] == [] and s["false_alarms"] == [("SUDDEN_DIRECTION_CHANGE", 3.0)]
+
+
+def test_behaviour_labels_are_validated(tmp_path):
+    bad = tmp_path / "bad.csv"
+    bad.write_text("clip,module,expected,start_sec,end_sec\nc.mp4,behavior,DANCING,1,2\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        evaluate.read_labels(bad)
+    no_window = tmp_path / "nowin.csv"
+    no_window.write_text("clip,module,expected,start_sec,end_sec\nc.mp4,behavior,LOITERING,,\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        evaluate.read_labels(no_window)
+    good = tmp_path / "good.csv"
+    good.write_text("clip,module,expected,start_sec,end_sec,calibration\nc.mp4,behavior,loitering,1,9,data/calibrations/cam.json\n",
+                    encoding="utf-8")
+    (lab,) = evaluate.read_labels(good)
+    assert lab.module == "behavior" and lab.calibration == "data/calibrations/cam.json"

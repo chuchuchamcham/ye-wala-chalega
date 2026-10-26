@@ -190,8 +190,8 @@ class BehaviorMonitor:
                     if reason and self._cooldown_ok(st, "ABNORMAL_SPEED", ts):
                         self._mark(st, "ABNORMAL_SPEED", ts)
                         events.append(BehaviorEvent("ABNORMAL_SPEED", tid, frame_index, ts, {
-                            "reason": reason, "speed_px_per_sec": round(speed, 1),
-                            "prev_speed_px_per_sec": round(st.last_speed_px_s, 1) if st.last_speed_px_s is not None else None,
+                            "reason": reason, f"speed_{cfg.units}_per_sec": round(speed, 1),
+                            f"prev_speed_{cfg.units}_per_sec": round(st.last_speed_px_s, 1) if st.last_speed_px_s is not None else None,
                             "location": point,
                         }))
 

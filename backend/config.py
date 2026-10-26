@@ -26,9 +26,33 @@ for _d in (MODELS_DIR, UPLOADS_DIR, OUTPUTS_DIR, REFERENCES_DIR, ZONES_DIR, JOBS
 
 YUNET_MODEL_PATH = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
 SFACE_MODEL_PATH = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
-YOLO_MODEL_PATH = MODELS_DIR / "yolov8n.pt"
 OPENH264_DLL_PATH = MODELS_DIR / "openh264-1.8.0-win64.dll"
+# Identity models: bigger replacements were measured and rejected (Oct
+# 2026, smoke_person_id clips, pairs labelled by track id: same track >=10-15
+# frames apart vs different tracks in one frame).
+# - ReID, OSNet x1_0 (Qualcomm AI Hub ONNX, Market-1501, MIT): AUC 0.965 vs
+#   0.962. At the code's own thresholds, matched for false-match rate: local
+#   reacquire found 0.929 vs 0.926 of same-person pairs, cross-camera 0.879
+#   vs 0.826 - but those are same-camera pairs, and it costs ~11 ms per crop
+#   against ~2.6, on every tracked person every few frames.
+# - Face, AuraFace glintr100 (ResNet100 ArcFace, Apache-2.0, 261 MB): worse
+#   on these small CCTV faces - AUC 0.865 vs SFace's 0.910, 0.636 vs 0.705 of
+#   same-person pairs at a 1% false-match rate - and 116 vs 39 ms per face.
+# Re-test on real labelled footage (two cameras, night) before revisiting.
 OSNET_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.onnx"
+ZERO_DCE_MODEL_PATH = MODELS_DIR / "zero_dce_pp.pth"
+
+# OpenCV's FFmpeg plugin encodes browser-playable H.264 through Cisco's
+# OpenH264, which it loads by bare file name (openh264-1.8.0-win64.dll) from
+# the Windows DLL search path - and models/ was never on it. The load failed,
+# FFmpeg logged a misleading "Incorrect library version loaded", and every
+# H.264 write fell back to the next codec. The bundled DLL is the right
+# version; it only has to be findable. PATH, not os.add_dll_directory: the
+# plugin calls plain LoadLibrary, which ignores add_dll_directory.
+if os.name == "nt" and OPENH264_DLL_PATH.is_file():
+    _path = os.environ.get("PATH", "")
+    if str(MODELS_DIR) not in _path.split(os.pathsep):
+        os.environ["PATH"] = str(MODELS_DIR) + os.pathsep + _path
 
 LOG_LEVEL = logging.INFO
 
@@ -46,6 +70,37 @@ def detect_device() -> str:
 
 
 DEVICE = detect_device()
+
+# Person/vehicle detector. YOLO11n replaced YOLOv8n; on a CPU it runs as an
+# OpenVINO INT8 export calibrated on frames from the demo clips. Measured
+# with scripts/benchmark_detector.py on a Ryzen 5 5500U, mean over the six
+# smoke clips, through the real tracker: 73.5 ms/frame against 116.1 for
+# the old yolov8n.pt (1.6x), the same mean confidence (0.724 vs 0.720), and
+# fewer distinct track ids on 5 of 6 clips, i.e. fewer broken tracks. The
+# FP32 OpenVINO export was barely faster than PyTorch on this CPU (103 ms),
+# so INT8 is where the gain is. The plain .pt is the fallback for a GPU
+# (OpenVINO here is CPU-only) or a machine without openvino installed.
+YOLO_PT_MODEL_PATH = MODELS_DIR / "yolo11n.pt"
+YOLO_OPENVINO_MODEL_PATH = MODELS_DIR / "yolo11n_int8_openvino_model"
+
+
+def pick_yolo_model(device: str = DEVICE) -> Path:
+    """The detector to load: DRISHTI_YOLO_MODEL if set, else the OpenVINO
+    INT8 export on a CPU with openvino installed, else yolo11n.pt."""
+    override = os.environ.get("DRISHTI_YOLO_MODEL")
+    if override:
+        path = Path(override)
+        return path if path.is_absolute() else MODELS_DIR / path
+    if device == "cpu" and YOLO_OPENVINO_MODEL_PATH.is_dir():
+        import importlib.util
+
+        if importlib.util.find_spec("openvino") is not None:
+            return YOLO_OPENVINO_MODEL_PATH
+    return YOLO_PT_MODEL_PATH
+
+
+# A .pt file, or an export directory (OpenVINO) - check with .exists().
+YOLO_MODEL_PATH = pick_yolo_model()
 
 
 @dataclass
@@ -82,6 +137,15 @@ class TrackerConfig:
     # detection_stride=1 explicitly for maximum-accuracy runs where every
     # frame should be truly detected, not propagated.
     detection_stride: int = 5
+
+    # Adaptive stride: detect on every frame, ignoring detection_stride,
+    # while anything is near a restricted zone or a target is locked - the
+    # moments where an extrapolated box could miss the frame a line is
+    # crossed. An empty or quiet scene keeps the cheap stride. "Near" is a
+    # footpoint inside the zone, predicted to reach it (ZONE_APPROACH), or
+    # within near_zone_frac of the frame diagonal of its edge.
+    adaptive_stride: bool = True
+    near_zone_frac: float = 0.15
 
 
 @dataclass
@@ -200,6 +264,15 @@ class AnprConfig:
     # pure noise floor cut before aggregation ever sees them.
     min_read_confidence: float = 25.0
 
+    # Plate crops that fail these never reach OCR - see modules/anpr/
+    # quality.py for the measurements behind each. Width: garbage below
+    # ~37px, correct reads from 75px. Sharpness is on a contrast-stretched,
+    # 48px-high copy; a 9x9-blurred good plate still scores 130+.
+    min_plate_width_px: int = 50
+    min_plate_aspect: float = 1.4
+    max_plate_aspect: float = 7.0
+    min_plate_sharpness: float = 50.0
+
     # Plate search (Mode 2): normalized-string similarity threshold and max
     # length difference tolerated when comparing an OCR read against the
     # user's requested plate. Deliberately conservative - see
@@ -303,6 +376,44 @@ class BehaviorConfig:
     # How long a behavior alert stays visually active on the output video.
     alert_display_sec: float = 2.0
 
+    # Metric thresholds, used instead of the pixel ones on a camera with a
+    # ground calibration (core/calibration.py), where positions arrive in
+    # metres. Same meaning everywhere in the picture and on every camera.
+    # People: brisk walking is ~1.5-2 m/s, jogging starts near 2.5.
+    loitering_radius_m: float = 3.0
+    speed_threshold_m_per_sec: float = 3.0
+    acceleration_threshold_m_per_sec: float = 2.0
+    reversal_radius_m: float = 4.0
+    min_displacement_m: float = 0.3
+    # Vehicles get their own limits - 3 m/s would flag every moving car.
+    vehicle_loitering_radius_m: float = 5.0
+    vehicle_speed_threshold_m_per_sec: float = 16.7  # 60 km/h
+    vehicle_acceleration_threshold_m_per_sec: float = 5.0
+    vehicle_reversal_radius_m: float = 8.0
+    vehicle_min_displacement_m: float = 1.0
+    # "px" or "m": which unit the *_px fields hold. Set by in_metres().
+    units: str = "px"
+
+    def in_metres(self, vehicles: bool = False) -> "BehaviorConfig":
+        """This config with its distance thresholds swapped for the metric
+        ones, for a monitor fed ground positions. The *_px fields then hold
+        metres (units says so); every timing and angle setting is kept."""
+        from dataclasses import replace
+
+        if vehicles:
+            return replace(
+                self, units="m", loitering_radius_px=self.vehicle_loitering_radius_m,
+                speed_threshold_px_per_sec=self.vehicle_speed_threshold_m_per_sec,
+                acceleration_threshold_px_per_sec=self.vehicle_acceleration_threshold_m_per_sec,
+                reversal_radius_px=self.vehicle_reversal_radius_m, min_displacement_px=self.vehicle_min_displacement_m,
+            )
+        return replace(
+            self, units="m", loitering_radius_px=self.loitering_radius_m,
+            speed_threshold_px_per_sec=self.speed_threshold_m_per_sec,
+            acceleration_threshold_px_per_sec=self.acceleration_threshold_m_per_sec,
+            reversal_radius_px=self.reversal_radius_m, min_displacement_px=self.min_displacement_m,
+        )
+
 
 @dataclass
 class LowLightConfig:
@@ -315,7 +426,22 @@ class LowLightConfig:
     (0-255), so they carry over as-is regardless of processing resolution.
     """
     enabled: bool = True
-    backend: str = "fast"  # "fast" (CLAHE + adaptive gamma) | "zero_dce" (optional, see core/lowlight.py)
+    # "fast" (CLAHE + adaptive gamma) | "zero_dce" (Zero-DCE++ curve
+    # estimation, see core/zero_dce.py). fast stays the default on the
+    # evidence of scripts/benchmark_lowlight.py: on the three dark demo clips
+    # Zero-DCE++ took 2-3x as long (46-92 vs 14-49 ms/frame), the detector
+    # was less confident on its output on all three, and dark-clip Person ID
+    # kept the target on 60 frames against fast's 90. Its output is flatter
+    # (no local contrast boost) and on monochrome night-vision footage it
+    # adds a colour cast - it was trained on colour photos. It does give
+    # more natural colour on colour footage, so it stays selectable.
+    # zero_dce falls back to fast, with the reason reported, if its weights
+    # or torch are unavailable.
+    backend: str = "fast"
+    zero_dce_model_path: Path = ZERO_DCE_MODEL_PATH
+    # Longer side of the copy the Zero-DCE++ network sees; its per-pixel
+    # curve map is scaled back up to the full frame.
+    zero_dce_work_dim: int = 320
 
     # A frame is LOW_LIGHT if its mean L is below this OR its 10th-percentile
     # L (catches large dark regions/shadows even when the overall mean looks

@@ -9,6 +9,11 @@ numpy==1.26.4
 opencv-python==4.10.0.84
 ultralytics==8.3.130
 lap==0.5.12
+# Runs the YOLO11n INT8 detector (models/yolo11n_int8_openvino_model) about
+# 1.6x faster than PyTorch on a CPU. Without it the detector falls back to
+# models/yolo11n.pt. Re-exporting the INT8 model also needs nncf==2.14.1
+# (see scripts/benchmark_detector.py); running it does not.
+openvino==2024.6.0
 
 fastapi
 uvicorn[standard]

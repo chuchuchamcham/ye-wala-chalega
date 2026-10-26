@@ -101,3 +101,42 @@ def test_tracks_persist_between_detections(clip_frames, reid):
         f"tracks reported on only {tracked_frames}/{len(counts)} frames - "
         "they are disappearing between detections"
     )
+
+
+def test_switching_to_urgent_and_back_keeps_the_same_people(clip_frames, reid):
+    """Adaptive stride: a locked target makes the tracker detect every frame.
+
+    The target lock is keyed to a track id, so speeding up or slowing down
+    must not hand the same person a new one. On this clip ReID appearance
+    matching holds the ids even without the Kalman velocity rescale in
+    _set_step_frames (checked: the same 20 ids either way); the rescale is
+    what keeps predicted_bbox - the box drawn through an occlusion - from
+    jumping a stride's worth ahead. The lost-track memory is asserted
+    directly.
+    """
+    tracker = _tracker(reid, stride=5)
+    slow_lost = tracker._tracker.max_time_lost
+
+    ids_before = set()
+    for frame in clip_frames[:20]:
+        ids_before = {t.track_id for t in tracker.update(frame)} or ids_before
+    assert ids_before, "nobody tracked in the opening frames"
+
+    for frame in clip_frames[20:40]:
+        ids_urgent = {t.track_id for t in tracker.update(frame, urgent=True)}
+    # Lost-track memory is counted in steps: five times the steps per second
+    # now, so five times the steps for the same time remembered.
+    assert tracker._tracker.max_time_lost == pytest.approx(slow_lost * 5, abs=2)
+    assert ids_before & ids_urgent, f"ids changed on speeding up: {ids_before} -> {ids_urgent}"
+
+    for frame in clip_frames[40:60]:
+        ids_after = {t.track_id for t in tracker.update(frame)}
+    assert tracker._tracker.max_time_lost == slow_lost
+    assert ids_urgent & ids_after, f"ids changed on slowing down: {ids_urgent} -> {ids_after}"
+
+
+def test_urgent_detects_every_frame(clip_frames, reid):
+    tracker = _tracker(reid, stride=5)
+    for frame in clip_frames[:10]:
+        tracker.update(frame, urgent=True)
+    assert tracker.detection_count == 10

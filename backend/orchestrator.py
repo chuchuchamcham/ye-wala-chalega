@@ -23,6 +23,7 @@ as-is by passing it the real target_track_id/zone_states from this run.
 """
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,6 +48,7 @@ from backend.core.video import VideoInfo, VideoReader
 from backend.modules.anpr.aggregator import PlateAggregator
 from backend.modules.anpr.ocr import PlateOcr, normalize_plate, plates_match
 from backend.modules.anpr.plate_detector import PlateDetector
+from backend.modules.anpr.quality import rejection_reason as plate_rejection_reason
 from backend.modules.anpr.validate import is_plausible_plate
 from backend.modules.behavior.state import BehaviorMonitor
 from backend.modules.person_id.custom_tracker import PersonBotSortTracker
@@ -56,7 +58,7 @@ from backend.modules.person_id.pipeline import _bbox_min_side, _prediction_still
 from backend.modules.person_id.recognizer import FaceRecognizer, ReferenceSet
 from backend.modules.person_id.target_gallery import TargetGallery
 from backend.modules.zone.geometry import Zone, centroid, denormalize_polygon, footpoint
-from backend.modules.zone.state import INSIDE, ZoneMonitor
+from backend.modules.zone.state import INSIDE, ZoneMonitor, anyone_near_zone
 
 # Plate width below which OCR cannot reliably resolve characters. Measured on
 # real footage: a 42px plate read as "11" where the true plate had 7
@@ -115,6 +117,15 @@ def _find_shared_track_for_bbox(
     return best_tid
 
 
+def _following(lock: TargetLock | None) -> bool:
+    """A confirmed target the lock is still on: seen now, or briefly hidden
+    inside its gap tolerance. After a real TARGET_LOST target_track_id goes
+    back to None, so a camera stops paying for every-frame detection once
+    the target has gone, not for the rest of the run."""
+    return lock is not None and lock.confirmed and lock.target_track_id is not None
+
+
+
 @dataclass
 class OrchestratorRequest:
     enable_person_id: bool = False
@@ -152,6 +163,10 @@ class OrchestratorRequest:
     # Live only: a core.motion.MotionGate. When set, the detectors skip frames
     # with no movement and nothing tracked. Forensic runs look at every frame.
     motion_gate: object | None = None
+    # A core.calibration.GroundCalibration for this camera's view. When set,
+    # behaviour analytics works in metres on the ground (separate limits for
+    # people and vehicles) instead of pixels.
+    ground_calibration: object | None = None
 
 
 @dataclass
@@ -289,6 +304,7 @@ class CombinedPipeline:
         normalized_target = None
         vehicle_seen: set[int] = set()
         plate_widths: list[int] = []
+        plate_quality_skipped: dict[str, int] = {}  # reason -> plate crops not sent to OCR
         plate_localized_seen: set[int] = set()
         plate_confirmed_seen: set[int] = set()
         anpr_extra_events: list[dict] = []
@@ -322,6 +338,12 @@ class CombinedPipeline:
 
         # --- behavior state ---
         behavior_monitor = BehaviorMonitor(self.behavior_cfg) if req.enable_behavior else None
+        # Calibrated: people and vehicles each get a monitor with metric
+        # limits, fed ground positions. behavior_monitor then serves people.
+        vehicle_behavior_monitor = None
+        if req.enable_behavior and req.ground_calibration is not None:
+            behavior_monitor = BehaviorMonitor(self.behavior_cfg.in_metres())
+            vehicle_behavior_monitor = BehaviorMonitor(self.behavior_cfg.in_metres(vehicles=True))
 
         # --- evidence / annotation bookkeeping ---
         evidence_dir = req.evidence_dir
@@ -392,6 +414,10 @@ class CombinedPipeline:
                 )
 
             was_tracking = False
+            # Adaptive stride: set at the end of each frame from what it
+            # found, read by the trackers on the next one.
+            urgent_shared = urgent_person = False
+            near_zone_px = self.tracker_config.near_zone_frac * math.hypot(w, h)
             try:
                 for frame in reader:
                     # Events appended during this frame are everything after
@@ -427,7 +453,7 @@ class CombinedPipeline:
                     if req.motion_gate is not None:
                         detect = req.motion_gate.should_run(frame.image, frame.timestamp_sec, tracking=bool(was_tracking))
                     if tracker is not None and detect:
-                        tracks = tracker.update(frame.image)
+                        tracks = tracker.update(frame.image, urgent=urgent_shared)
                         tracks_by_id = {t.track_id: t for t in tracks}
                         for tid, t in tracks_by_id.items():
                             track_class[tid] = t.class_id
@@ -437,7 +463,7 @@ class CombinedPipeline:
 
                     # ---------------- person_id (dedicated BoT-SORT+OSNet tracker) ----------------
                     if req.enable_person_id:
-                        person_tracks = person_tracker.update(frame.image) if detect else []
+                        person_tracks = person_tracker.update(frame.image, urgent=urgent_person) if detect else []
                         person_tracks_by_id = {t.track_id: t for t in person_tracks}
 
                         # face recognition: identity CONFIRMATION (periodic, not continuous)
@@ -570,7 +596,12 @@ class CombinedPipeline:
                                     plate_localized_seen.add(tid)
                                     all_events.append({"event_id": next_event_id(), "type": "PLATE_DETECTED", "track_id": tid, "frame_index": frame.index, "timestamp_sec": frame.timestamp_sec, "data": {}})
                                 px1, py1, px2, py2 = candidate.bbox
-                                text, confidence = self.ocr.read(crop[py1:py2, px1:px2])
+                                plate_crop = crop[py1:py2, px1:px2]
+                                skip = plate_rejection_reason(plate_crop, self.anpr_cfg)
+                                if skip is not None:
+                                    plate_quality_skipped[skip] = plate_quality_skipped.get(skip, 0) + 1
+                                    continue
+                                text, confidence = self.ocr.read(plate_crop)
                                 if text is None or confidence is None or confidence < self.anpr_cfg.min_read_confidence:
                                     continue
                                 if not is_plausible_plate(text):
@@ -653,10 +684,23 @@ class CombinedPipeline:
 
                     # ---------------- behavior ----------------
                     if req.enable_behavior:
-                        centroids = {tid: centroid(t.bbox) for tid, t in tracks_by_id.items()}
                         zone_states_for_behavior = {tid: zone_inside_any.get(tid, "OUTSIDE") for tid in tracks_by_id} if req.zones else None
                         zone_id_for_behavior = req.zones[0].zone_id if req.zones else None
-                        new_events = behavior_monitor.update(centroids, frame.index, frame.timestamp_sec, zone_states=zone_states_for_behavior, zone_id=zone_id_for_behavior, target_track_id=target_tid_shared)
+                        if vehicle_behavior_monitor is None:
+                            centroids = {tid: centroid(t.bbox) for tid, t in tracks_by_id.items()}
+                            new_events = behavior_monitor.update(centroids, frame.index, frame.timestamp_sec, zone_states=zone_states_for_behavior, zone_id=zone_id_for_behavior, target_track_id=target_tid_shared)
+                        else:
+                            # Footpoints: the calibration maps the ground plane,
+                            # and the feet are where a track touches it.
+                            ground = {tid: req.ground_calibration.to_ground(footpoint(t.bbox), w, h) for tid, t in tracks_by_id.items()}
+                            vehicle_ids = {tid for tid in ground if track_class.get(tid) in self.tracker_config.vehicle_class_ids}
+                            new_events = []
+                            for monitor, ids in ((behavior_monitor, set(ground) - vehicle_ids), (vehicle_behavior_monitor, vehicle_ids)):
+                                new_events += monitor.update(
+                                    {tid: ground[tid] for tid in ids}, frame.index, frame.timestamp_sec,
+                                    zone_states={tid: s for tid, s in zone_states_for_behavior.items() if tid in ids} if zone_states_for_behavior is not None else None,
+                                    zone_id=zone_id_for_behavior, target_track_id=target_tid_shared,
+                                )
                         for ev in new_events:
                             cname = "VEHICLE" if track_class.get(ev.track_id) in self.tracker_config.vehicle_class_ids else "PERSON"
                             d = {"event_id": next_event_id(), "type": ev.type, "track_id": ev.track_id, "frame_index": ev.frame_index, "timestamp_sec": ev.timestamp_sec, "data": ev.data}
@@ -670,6 +714,16 @@ class CombinedPipeline:
                             active_banners.append((lines, _BEHAVIOR_BANNER_COLOR[ev.type], frame.index + banner_frames))
 
                     was_tracking = bool(tracks_by_id) or (req.enable_person_id and bool(person_tracks_by_id))
+
+                    if self.tracker_config.adaptive_stride:
+                        person_locked = _following(person_lock)
+                        urgent_person = person_locked
+                        urgent_shared = person_locked or _following(anpr_lock) or (
+                            bool(req.zones) and anyone_near_zone(
+                                {tid: footpoint(t.bbox) for tid, t in tracks_by_id.items()},
+                                zone_monitors, zone_polygons_px, near_zone_px,
+                            )
+                        )
 
                     # ---------------- observers ----------------
                     # Before anything is drawn, so crops taken here are clean.
@@ -841,6 +895,7 @@ class CombinedPipeline:
                 "plates_localized": len(plate_localized_seen),
                 "median_plate_width_px": median_plate_width,
                 "legibility_warning": legibility,
+                "plate_crops_skipped": plate_quality_skipped,
                 "ocr_status": self.ocr.status.to_dict(),
             }
 
@@ -856,9 +911,10 @@ class CombinedPipeline:
         behavior_summary = None
         if req.enable_behavior:
             counts: dict[str, int] = {}
-            for e in behavior_monitor.events:
+            for e in behavior_monitor.events + (vehicle_behavior_monitor.events if vehicle_behavior_monitor else []):
                 counts[e.type] = counts.get(e.type, 0) + 1
-            behavior_summary = {"event_counts": counts, "tracks_observed": len(track_class)}
+            behavior_summary = {"event_counts": counts, "tracks_observed": len(track_class),
+                                "units": "m" if vehicle_behavior_monitor else "px"}
 
         lowlight_summary = None
         if req.enable_lowlight:

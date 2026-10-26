@@ -20,6 +20,8 @@ def make_tracker(stride: int) -> ObjectTracker:
     tracker.class_ids = None
     tracker._model = None
     tracker._frame_index = 0
+    tracker._last_detect_index = None
+    tracker.detection_count = 0
     tracker._last_tracks = {}
     tracker._last_detected = {}
     tracker._velocity = {}
@@ -126,3 +128,43 @@ def test_track_disappearing_stops_after_next_real_detection(monkeypatch):
 def test_stride_is_clamped_to_at_least_one():
     tracker = make_tracker(stride=0)
     assert max(1, tracker.config.detection_stride) == 1
+
+
+def _detected_frames(tracker, monkeypatch, urgent_on: set[int], n: int) -> list[int]:
+    detected = []
+    monkeypatch.setattr(tracker, "_detect", lambda image: detected.append(i) or [Track(1, (10, 10, 30, 30), 0, 0.9)])
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    for i in range(n):
+        tracker.update(image, urgent=i in urgent_on)
+    return detected
+
+
+def test_urgent_frames_always_detect(monkeypatch):
+    tracker = make_tracker(stride=5)
+    assert _detected_frames(tracker, monkeypatch, urgent_on={6, 7, 8}, n=10) == [0, 5, 6, 7, 8]
+    assert tracker.detection_count == 5
+
+
+def test_stride_restarts_from_the_last_urgent_detection(monkeypatch):
+    # After the last urgent frame (8) the next routine detection is a full
+    # stride later (13), not whenever the frame number is a multiple of 5.
+    tracker = make_tracker(stride=5)
+    assert _detected_frames(tracker, monkeypatch, urgent_on={7, 8}, n=19) == [0, 5, 7, 8, 13, 18]
+
+
+def test_never_urgent_keeps_the_old_cadence(monkeypatch):
+    tracker = make_tracker(stride=5)
+    assert _detected_frames(tracker, monkeypatch, urgent_on=set(), n=16) == [0, 5, 10, 15]
+
+
+def test_propagation_after_urgent_frames_uses_per_frame_velocity(monkeypatch):
+    # Two urgent detections one frame apart: +4px is one frame of motion,
+    # so the next (propagated) frame moves +4px, not +4px per stride.
+    tracker = make_tracker(stride=5)
+    boxes = iter([(10, 10, 30, 30), (14, 10, 34, 30)])
+    monkeypatch.setattr(tracker, "_detect", lambda image: [Track(1, next(boxes), 0, 0.9)])
+    image = np.zeros((200, 200, 3), dtype=np.uint8)
+    tracker.update(image, urgent=True)
+    tracker.update(image, urgent=True)
+    (t,) = tracker.update(image)
+    assert t.propagated and t.bbox == (18, 10, 38, 30)

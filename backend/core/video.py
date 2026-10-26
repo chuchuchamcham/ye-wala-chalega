@@ -150,6 +150,14 @@ class VideoReader:
 DEFAULT_MAX_ANALYSIS_WIDTH = 960
 
 
+ROTATIONS = {0: None, 90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+
+
+def rotate_frame(image: np.ndarray, degrees: int) -> np.ndarray:
+    code = ROTATIONS.get(degrees)
+    return image if code is None else cv2.rotate(image, code)
+
+
 def downscale_for_analysis(image: np.ndarray, max_width: int | None) -> np.ndarray:
     """Shrink a frame to `max_width` if it is wider. Never upscales - a small
     camera's frames are left exactly as they arrived."""
@@ -267,9 +275,14 @@ class LiveStreamReader:
         fps_window: int = 30,
         target_fps: float | None = None,
         max_width: int | None = DEFAULT_MAX_ANALYSIS_WIDTH,
+        rotate: int = 0,
     ):
         self.source = str(source)
         self.max_width = max_width
+        # Clockwise degrees. A phone used as a webcam (DroidCam over USB)
+        # sends its picture sideways when held upright, and face detection
+        # cannot find a face lying on its side.
+        self.rotate = rotate if rotate in ROTATIONS else 0
         # Capture rate to aim for, independent of what the file/camera offers.
         # Analytics cameras are routinely configured well below their maximum
         # (12-15fps is typical), and a lower rate means consecutive analysed
@@ -351,9 +364,22 @@ class LiveStreamReader:
 
         if self.is_webcam:
             # DirectShow opens Windows webcams in about a second; the default
-            # backend can take ten.
-            backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
-            cap = cv2.VideoCapture(int(self.source.strip()), backend)
+            # backend can take ten. Some virtual cameras (DroidCam's phone
+            # webcam among them) register only with Media Foundation, so fall
+            # back to it when DirectShow cannot open the index.
+            index = int(self.source.strip())
+            if os.name == "nt":
+                cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+                if not cap.isOpened():
+                    cap.release()
+                    cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
+            else:
+                cap = cv2.VideoCapture(index, cv2.CAP_ANY)
+            # Webcams open at 640x480 unless asked; faces at a few metres need
+            # more pixels than that. A camera without HD keeps its own size.
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         else:
             cap = cv2.VideoCapture(self.source)
         if not cap.isOpened():
@@ -375,6 +401,8 @@ class LiveStreamReader:
         self.status.source_fps = fps
         raw_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         raw_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if self.rotate in (90, 270):
+            raw_w, raw_h = raw_h, raw_w
         if self.max_width and raw_w > self.max_width:
             scale = self.max_width / raw_w
             raw_w, raw_h = self.max_width, max(1, int(round(raw_h * scale)))
@@ -487,7 +515,7 @@ class LiveStreamReader:
             self._record_frame_time(now)
 
             yield Frame(index=index, timestamp_sec=now - started_at,
-                        image=downscale_for_analysis(image, self.max_width))
+                        image=downscale_for_analysis(rotate_frame(image, self.rotate), self.max_width))
             index += 1
 
             rate = self.effective_fps

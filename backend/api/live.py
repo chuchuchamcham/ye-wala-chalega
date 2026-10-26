@@ -20,6 +20,7 @@ import os
 import time
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -28,6 +29,9 @@ from pydantic import BaseModel, Field
 from backend.api.storage import NotFoundError, find_reference_photos, load_zone, new_id, save_zone
 from backend.api.network import lan_addresses, reachable_base_url
 from backend.config import EVIDENCE_DIR
+from backend.core.calibration import (
+    CalibrationError, GroundCalibration, delete_calibration, load_calibration, save_calibration,
+)
 from backend.core.video import DEFAULT_MAX_ANALYSIS_WIDTH, PUSH_SCHEME, PushStreamReader
 from backend.live.camera_manager import AnalysisSpec, camera_manager
 from backend.modules.zone.geometry import Zone
@@ -121,6 +125,13 @@ class CameraCreateRequest(BaseModel):
         description="Frames are downscaled to this width before analysis. Raise it for ANPR, "
                     "where readable plates need pixels; lower it for more speed.",
     )
+    rotate: Literal[0, 90, 180, 270] = Field(
+        default=0, description="Clockwise rotation for a sideways picture, e.g. a phone used as a webcam",
+    )
+
+
+class RotateRequest(BaseModel):
+    degrees: Literal[0, 90, 180, 270]
 
 
 class AnalysisConfigRequest(BaseModel):
@@ -168,10 +179,23 @@ def list_cameras() -> list[dict]:
 def create_camera(req: CameraCreateRequest) -> dict:
     camera = camera_manager.add(
         name=req.name, source=req.source, loop=req.loop, location=req.location,
-        max_width=req.max_width,
+        max_width=req.max_width, rotate=req.rotate,
     )
     session = camera_manager.get(camera.camera_id)
     if req.start:
+        session.start()
+    return session.status_dict()
+
+
+@router.post("/cameras/{camera_id}/rotate")
+def rotate_camera(camera_id: str, req: RotateRequest) -> dict:
+    """Turn a sideways picture upright. Restarts capture so the new rotation
+    applies from the next frame; analysis settings are kept."""
+    session = _require(camera_id)
+    was_running = session.is_running
+    session.stop()
+    session.camera.rotate = req.degrees
+    if was_running:
         session.start()
     return session.status_dict()
 
@@ -270,6 +294,41 @@ def create_camera_zone(camera_id: str, req: ZoneCreateOnCameraRequest) -> dict:
         raise HTTPException(400, str(exc))
     save_zone(zone)
     return zone.to_dict()
+
+
+class CalibrationRequest(BaseModel):
+    points: list[tuple[float, float]] = Field(min_length=4, max_length=4)
+    width_m: float
+    depth_m: float
+
+
+@router.get("/cameras/{camera_id}/calibration")
+def get_camera_calibration(camera_id: str) -> dict:
+    """The camera's ground calibration, or {"calibrated": false}."""
+    _require(camera_id)
+    calibration = load_calibration(camera_id)
+    return {"calibrated": False} if calibration is None else {"calibrated": True, **calibration.to_dict()}
+
+
+@router.put("/cameras/{camera_id}/calibration")
+def set_camera_calibration(camera_id: str, req: CalibrationRequest) -> dict:
+    """Mark a rectangle on the ground and give its real size, so behaviour
+    analytics measures speed and distance in metres. Takes effect the next
+    time the camera's analysis is applied (or restarted)."""
+    _require(camera_id)
+    try:
+        calibration = GroundCalibration(points=[tuple(p) for p in req.points], width_m=req.width_m, depth_m=req.depth_m)
+    except CalibrationError as exc:
+        raise HTTPException(400, str(exc))
+    save_calibration(camera_id, calibration)
+    return {"calibrated": True, **calibration.to_dict()}
+
+
+@router.delete("/cameras/{camera_id}/calibration")
+def clear_camera_calibration(camera_id: str) -> dict:
+    _require(camera_id)
+    delete_calibration(camera_id)
+    return {"calibrated": False}
 
 
 @router.get("/siren", include_in_schema=False)

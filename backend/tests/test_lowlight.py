@@ -43,6 +43,13 @@ def test_dark_frame_triggers_enhancement():
     assert info.mean_l_after > info.mean_l_before  # genuinely brighter, not just relabeled
 
 
+def test_zero_dce_backend_selectable():
+    out, info = process_frame(solid_image(20), LowLightConfig(backend="zero_dce"))
+    assert info.enhanced is True and info.backend_used == "zero_dce"
+    assert info.fallback_reason is None
+    assert info.mean_l_after > info.mean_l_before
+
+
 def test_borderline_brightness_threshold_flips_classification():
     base_cfg = LowLightConfig()
     dark = solid_image(60)
@@ -125,8 +132,8 @@ def test_enhancement_disabled_flag_suppresses_enhancement_but_keeps_classificati
     assert np.array_equal(out, dark)
 
 
-def test_zero_dce_backend_falls_back_gracefully_not_crashes():
-    cfg = LowLightConfig(backend="zero_dce")
+def test_zero_dce_backend_falls_back_gracefully_not_crashes(tmp_path):
+    cfg = LowLightConfig(backend="zero_dce", zero_dce_model_path=tmp_path / "missing.pth")
     dark = solid_image(20)
     out, info = process_frame(dark, cfg)
     assert info.enhanced is True

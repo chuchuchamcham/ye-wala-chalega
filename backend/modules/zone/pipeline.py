@@ -9,6 +9,7 @@ point against an n-gon is negligible next to detection/tracking cost.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import hypot
 from pathlib import Path
 from typing import Callable
 
@@ -20,7 +21,7 @@ from backend.core.output import (
 from backend.core.tracker import ObjectTracker
 from backend.core.video import VideoInfo, VideoReader
 from backend.modules.zone.geometry import Zone, centroid, denormalize_polygon, footpoint
-from backend.modules.zone.state import INSIDE, ZoneMonitor
+from backend.modules.zone.state import INSIDE, ZoneMonitor, anyone_near_zone
 
 _BANNER_COLOR = {
     "ZONE_APPROACH": ORANGE, "ZONE_ENTRY": RED, "ZONE_EXIT": GREEN,
@@ -104,9 +105,11 @@ class ZonePipeline:
             polygon_px = denormalize_polygon(norm_polygon, reader.info.width, reader.info.height)
             banner_frames = max(1, int(round(reader.info.fps * cfg.banner_display_sec)))
             progress_stride = max(1, reader.info.frame_count // 100) if reader.info.frame_count else 30
+            near_zone_px = self.tracker_config.near_zone_frac * hypot(reader.info.width, reader.info.height)
+            urgent = False  # adaptive stride, see TrackerConfig.adaptive_stride
 
             for frame in reader:
-                tracks = tracker.update(frame.image)
+                tracks = tracker.update(frame.image, urgent=urgent)
                 tracks_by_id = {t.track_id: t for t in tracks}
                 for tid, t in tracks_by_id.items():
                     track_class[tid] = t.class_id
@@ -115,6 +118,9 @@ class ZonePipeline:
                 n_before = len(monitor.events)
                 monitor.update(points, frame.index, frame.timestamp_sec, polygon_px)
                 new_events = monitor.events[n_before:]
+                urgent = self.tracker_config.adaptive_stride and anyone_near_zone(
+                    points, [monitor], [polygon_px], near_zone_px,
+                )
 
                 label = zone.label or "RESTRICTED ZONE"
                 breached = any(monitor.state_of(tid) == INSIDE for tid in tracks_by_id)

@@ -6,6 +6,7 @@ import type { Zone } from "../../api/types";
 import { getZone } from "../../api/zones";
 import { ReferencePhotoUpload } from "../analysis/ReferencePhotoUpload";
 import { ZoneDrawer } from "../analysis/ZoneDrawer";
+import { CalibrationEditor } from "./CalibrationEditor";
 
 interface ModuleState {
   person_id: boolean;
@@ -208,6 +209,15 @@ export function CameraSetupPanel({
           }}
         />
       </div>
+
+      {modules.behavior && (
+        <div className="flex flex-col gap-2">
+          <div className="text-[12.5px] font-bold uppercase tracking-wide text-text-secondary">
+            Ground calibration <span className="font-normal normal-case text-text-tertiary">(optional, for behaviour in metres)</span>
+          </div>
+          <CalibrationEditor cameraId={camera.camera_id} imageUrl={snapshotUrl(camera.camera_id, snapshotNonce)} />
+        </div>
+      )}
 
       {error && (
         <div className="rounded border border-accent-red/35 bg-accent-red/10 px-3 py-2 text-[12px] text-accent-red">

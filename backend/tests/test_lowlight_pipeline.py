@@ -46,7 +46,11 @@ def test_only_dark_frames_are_enhanced(tmp_path):
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, 2)  # a bright frame
     ok, bright_out = cap.read()
-    assert ok and abs(float(bright_out.mean()) - 200.0) < 2.0  # untouched
+    # Untouched by enhancement. The slack is the codec's, not the pipeline's:
+    # output is now real H.264 (OpenH264), whose YUV 4:2:0 round trip moves a
+    # flat 200 grey to ~195; the old silent mp4v fallback happened to keep it
+    # within 2.
+    assert ok and abs(float(bright_out.mean()) - 200.0) < 8.0
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, 12)  # a dark (enhanced) frame
     ok, dark_out = cap.read()

@@ -12,7 +12,7 @@ wrote down.
 
 LABELS FILE (CSV, lines starting with # are ignored). One row per fact:
 
-    clip,module,expected,start_sec,end_sec,reference,zone,lowlight,condition
+    clip,module,expected,start_sec,end_sec,reference,zone,lowlight,condition[,calibration]
 
   anpr       expected = the plate text on a vehicle in the clip. One row per
              plate. ANPR runs in automatic mode, so every plate it confirms is
@@ -25,8 +25,16 @@ LABELS FILE (CSV, lines starting with # are ignored). One row per fact:
              zone = path to a zone JSON (as saved under zones/). Start each
              clip with the zone empty: anyone already inside on the first
              frame registers as an entry at 0 s.
+  behavior   expected = LOITERING | ABNORMAL_SPEED | SUDDEN_DIRECTION_CHANGE |
+             REPEATED_BACK_AND_FORTH for each real occurrence, with start_sec/
+             end_sec bracketing it; or expected = none for a clip with nothing
+             suspicious (it still counts false alarms). Scored like zone
+             crossings: each labelled window matches at most one alert of that
+             type, and every unmatched alert is a false alarm.
   lowlight   yes to run low-light enhancement, as an operator would at night.
   condition  any label for splitting results: day, night, far, rain ...
+  calibration  optional, behavior only: path to a ground calibration JSON
+             (as saved under data/calibrations/) to score behaviour in metres.
 
 Relative paths resolve against the repository; clips resolve against --videos.
 
@@ -51,7 +59,8 @@ sys.path.insert(0, str(REPO))
 DEFAULT_LABELS = REPO / "eval" / "demo_labels.csv"
 DEFAULT_VIDEOS = REPO / "uploads"
 DEFAULT_OUT = REPO / "outputs" / "eval"
-MODULES = ("anpr", "person_id", "zone")
+MODULES = ("anpr", "person_id", "zone", "behavior")
+BEHAVIOR_TYPES = ("LOITERING", "ABNORMAL_SPEED", "SUDDEN_DIRECTION_CHANGE", "REPEATED_BACK_AND_FORTH")
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 
@@ -66,6 +75,7 @@ class Label:
     zone: str = ""
     lowlight: bool = False
     condition: str = ""
+    calibration: str = ""
     line: int = 0
 
 
@@ -77,6 +87,7 @@ class Run:
     reference: str
     zone: str
     lowlight: bool
+    calibration: str = ""
     labels: list[Label] = field(default_factory=list)
     events: list[dict] = field(default_factory=list)
     summary: dict | None = None
@@ -121,12 +132,18 @@ def read_labels(path: Path) -> list[Label]:
                 raise SystemExit(f"{path}:{line_no}: zone needs a zone JSON path")
             if expected.lower() == "entry" and (not row.get("start_sec") or not row.get("end_sec")):
                 raise SystemExit(f"{path}:{line_no}: a zone entry needs start_sec and end_sec")
+        if module == "behavior":
+            if expected.upper() not in BEHAVIOR_TYPES and expected.lower() != "none":
+                raise SystemExit(f"{path}:{line_no}: behavior expects one of {', '.join(BEHAVIOR_TYPES)} or 'none'")
+            if expected.lower() != "none" and (not row.get("start_sec") or not row.get("end_sec")):
+                raise SystemExit(f"{path}:{line_no}: a behaviour occurrence needs start_sec and end_sec")
         labels.append(Label(
             clip=row.get("clip", ""), module=module, expected=expected,
             start_sec=_float_or_none(row.get("start_sec", "")), end_sec=_float_or_none(row.get("end_sec", "")),
             reference=row.get("reference", ""), zone=row.get("zone", ""),
             lowlight=row.get("lowlight", "").lower() in ("yes", "y", "true", "1"),
-            condition=row.get("condition", ""), line=line_no,
+            condition=row.get("condition", ""), calibration=row.get("calibration", "") if module == "behavior" else "",
+            line=line_no,
         ))
     return labels
 
@@ -136,9 +153,9 @@ def group_runs(labels: list[Label]) -> list[Run]:
     runs: dict[tuple, Run] = {}
     for lab in labels:
         key = (lab.module, lab.clip, lab.reference if lab.module == "person_id" else "",
-               lab.zone if lab.module == "zone" else "", lab.lowlight)
+               lab.zone if lab.module == "zone" else "", lab.lowlight, lab.calibration)
         if key not in runs:
-            runs[key] = Run(module=key[0], clip=key[1], reference=key[2], zone=key[3], lowlight=key[4])
+            runs[key] = Run(module=key[0], clip=key[1], reference=key[2], zone=key[3], lowlight=key[4], calibration=key[5])
         runs[key].labels.append(lab)
     return list(runs.values())
 
@@ -174,6 +191,16 @@ def execute(run: Run, videos: Path) -> None:
             return
         req.enable_person_id = True
         req.reference_photo_paths = photos
+    elif run.module == "behavior":
+        req.enable_behavior = True
+        if run.calibration:
+            from backend.core.calibration import GroundCalibration
+
+            cal_file = resolve(run.calibration, REPO)
+            if not cal_file.is_file():
+                run.error = f"calibration file not found: {cal_file}"
+                return
+            req.ground_calibration = GroundCalibration.from_dict(json.loads(cal_file.read_text(encoding="utf-8")))
     else:
         zone_file = resolve(run.zone, REPO)
         if not zone_file.is_file():
@@ -189,7 +216,8 @@ def execute(run: Run, videos: Path) -> None:
         return
     elapsed = time.monotonic() - started
     run.events = result.events
-    run.summary = result.anpr if run.module == "anpr" else result.person_id if run.module == "person_id" else result.zones
+    run.summary = {"anpr": result.anpr, "person_id": result.person_id, "zone": result.zones,
+                   "behavior": result.behavior}[run.module]
     run.duration_sec = result.video_info.duration_sec or 0.0
     frames = result.metrics.get("frames_read") or 0
     run.processing_fps = result.metrics.get("processing_fps") or (frames / elapsed if elapsed else 0.0)
@@ -287,6 +315,21 @@ def score_zone(run: Run, tolerance: float) -> dict:
     }
 
 
+def score_behavior(run: Run, tolerance: float) -> dict:
+    """Per behaviour type, the same one-to-one window matching as zone
+    crossings: a labelled occurrence is caught by the earliest unused alert of
+    its type inside its window; alerts left over are false alarms."""
+    occurrences, false_alarms = [], []
+    for btype in BEHAVIOR_TYPES:
+        alerts = [e["timestamp_sec"] for e in run.events if e.get("type") == btype]
+        labelled = sorted((lab for lab in run.labels if lab.expected.upper() == btype),
+                          key=lambda lab: (lab.start_sec, lab.end_sec))
+        matched, unused = match_zone_entries(alerts, [(lab.start_sec, lab.end_sec) for lab in labelled], tolerance)
+        occurrences += [{"label": lab, "type": btype, "detected_at": hit} for lab, hit in zip(labelled, matched)]
+        false_alarms += [(btype, t) for t in unused]
+    return {"occurrences": occurrences, "false_alarms": false_alarms}
+
+
 # --- reporting ----------------------------------------------------------------
 
 def pct(n: int, d: int) -> str:
@@ -302,6 +345,10 @@ def build_report(runs: list[Run], scores: dict[int, dict], labels_path: Path, to
     false_alarms = sum(len(s["false_alarms"]) for _, s in zone_runs)
     zone_hours = sum(run.duration_sec for run, _ in zone_runs) / 3600.0
     leads = [t for _, s in zone_runs for t in s["lead_times"]]
+    behavior_runs = [(run, scores[i]) for i, run in enumerate(runs) if run.module == "behavior" and not run.error]
+    behaviors = [o for _, s in behavior_runs for o in s["occurrences"]]
+    behavior_false = sum(len(s["false_alarms"]) for _, s in behavior_runs)
+    behavior_hours = sum(run.duration_sec for run, _ in behavior_runs) / 3600.0
 
     present = [r for r in person_rows if r["present"]]
     absent = [r for r in person_rows if not r["present"]]
@@ -315,6 +362,9 @@ def build_report(runs: list[Run], scores: dict[int, dict], labels_path: Path, to
         "zone_false_alarms": false_alarms,
         "zone_false_alarms_per_hour": (false_alarms / zone_hours) if zone_hours else None,
         "zone_median_warning_sec": statistics.median(leads) if leads else None,
+        "behavior_caught": (sum(o["detected_at"] is not None for o in behaviors), len(behaviors)),
+        "behavior_false_alarms": behavior_false,
+        "behavior_false_alarms_per_hour": (behavior_false / behavior_hours) if behavior_hours else None,
     }
     speed: dict[str, list[float]] = defaultdict(list)
     for run in runs:
@@ -339,6 +389,13 @@ def build_report(runs: list[Run], scores: dict[int, dict], labels_path: Path, to
         + (f" ({summary['zone_false_alarms_per_hour']:.1f} per camera-hour)" if summary["zone_false_alarms_per_hour"] is not None else "") + " |",
         f"| Restricted zone | Median warning before crossing | {summary['zone_median_warning_sec']:.1f} s |" if summary["zone_median_warning_sec"] is not None else "| Restricted zone | Median warning before crossing | no samples |",
     ]
+    if behavior_runs:
+        md += [
+            f"| Behaviour | Occurrences caught | {pct(*summary['behavior_caught'])} |",
+            f"| Behaviour | False alarms | {summary['behavior_false_alarms']}"
+            + (f" ({summary['behavior_false_alarms_per_hour']:.1f} per camera-hour)"
+               if summary["behavior_false_alarms_per_hour"] is not None else "") + " |",
+        ]
     for module in MODULES:
         if speed.get(module):
             md.append(f"| Speed | {module} processing on this CPU | {statistics.mean(speed[module]):.1f} fps |")
@@ -350,8 +407,10 @@ def build_report(runs: list[Run], scores: dict[int, dict], labels_path: Path, to
         by_condition[r["label"].condition or "unlabelled"]["Person found"].append(r["confirmed"])
     for c in crossings:
         by_condition[c["label"].condition or "unlabelled"]["Crossing caught"].append(c["detected_at"] is not None)
+    for o in behaviors:
+        by_condition[o["label"].condition or "unlabelled"]["Behaviour caught"].append(o["detected_at"] is not None)
     if len(by_condition) > 1:
-        cols = ["ANPR exact", "Person found", "Crossing caught"]
+        cols = ["ANPR exact", "Person found", "Crossing caught", "Behaviour caught"]
         md += ["", "## By condition", "", "| Condition | " + " | ".join(cols) + " |", "|---" * (len(cols) + 1) + "|"]
         for cond in sorted(by_condition):
             cells = [pct(sum(v), len(v)) if (v := by_condition[cond].get(c)) else "–" for c in cols]
@@ -374,6 +433,12 @@ def build_report(runs: list[Run], scores: dict[int, dict], labels_path: Path, to
     for run, s in zone_runs:
         for t in s["false_alarms"]:
             failures.append(f"Zone · `{run.clip}` · false alarm at {t:.1f} s")
+    for o in behaviors:
+        if o["detected_at"] is None:
+            failures.append(f"Behaviour · `{o['label'].clip}` · missed {o['type']} at {o['label'].start_sec:.1f}–{o['label'].end_sec:.1f} s")
+    for run, s in behavior_runs:
+        for btype, t in s["false_alarms"]:
+            failures.append(f"Behaviour · `{run.clip}` · false {btype} at {t:.1f} s")
     for run in runs:
         if run.error:
             failures.append(f"Not scored · `{run.clip}` ({run.module}) · {run.error}")
@@ -397,7 +462,8 @@ def main() -> int:
     parser.add_argument("--videos", type=Path, default=DEFAULT_VIDEOS, help="folder the clip names resolve against")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--only", help="comma-separated modules to run: " + ",".join(MODULES))
-    parser.add_argument("--zone-tolerance", type=float, default=1.0, help="seconds of slack around a labelled crossing")
+    parser.add_argument("--zone-tolerance", type=float, default=1.0,
+                        help="seconds of slack around a labelled zone crossing or behaviour occurrence")
     args = parser.parse_args()
 
     labels = read_labels(args.labels)
@@ -421,6 +487,8 @@ def main() -> int:
             scores[i] = score_anpr(run, normalize_plate)
         elif run.module == "person_id":
             scores[i] = score_person(run)
+        elif run.module == "behavior":
+            scores[i] = score_behavior(run, args.zone_tolerance)
         else:
             scores[i] = score_zone(run, args.zone_tolerance)
 

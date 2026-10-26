@@ -34,7 +34,7 @@ def test_combined_person_id_uses_new_tracker(tmp_path):
 
     real_update = PersonBotSortTracker.update
     with patch.object(PersonBotSortTracker, "update", autospec=True) as spy:
-        spy.side_effect = lambda self, frame: real_update(self, frame)
+        spy.side_effect = lambda self, frame, **kw: real_update(self, frame, **kw)
         req = OrchestratorRequest(enable_person_id=True, reference_photo_paths=[REF_PHOTO])
         CombinedPipeline(req).run(video_path, output_path)
 
@@ -52,7 +52,7 @@ def test_combined_person_id_plus_anpr_still_uses_new_tracker_for_person(tmp_path
 
     real_update = PersonBotSortTracker.update
     with patch.object(PersonBotSortTracker, "update", autospec=True) as spy:
-        spy.side_effect = lambda self, frame: real_update(self, frame)
+        spy.side_effect = lambda self, frame, **kw: real_update(self, frame, **kw)
         req = OrchestratorRequest(enable_person_id=True, reference_photo_paths=[REF_PHOTO], enable_anpr=True)
         result = CombinedPipeline(req).run(video_path, output_path)
 

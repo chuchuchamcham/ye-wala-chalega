@@ -40,6 +40,7 @@ from backend.live.false_alarms import memory as false_alarm_memory
 from backend.live.tamper import TamperMonitor, TamperReading, TappedReader
 from backend.live.target_registry import target_registry
 from backend.live.store import EventStore
+from backend.core.calibration import load_calibration
 from backend.orchestrator import CombinedPipeline, OrchestratorRequest
 
 logger = logging.getLogger("backend.live")
@@ -84,6 +85,9 @@ def live_behavior_config() -> BehaviorConfig:
         # One alert per track per 20s: enough to stay informed, not enough to
         # bury the operator.
         behavior_cooldown_seconds=20.0,
+        # The same ~1s baseline, in metres, for a calibrated camera.
+        min_displacement_m=0.8,
+        vehicle_min_displacement_m=2.0,
     )
 
 
@@ -157,6 +161,9 @@ class Camera:
     # camera doing ANPR, where legibility depends on plate pixels and the
     # default trades resolution for speed.
     max_width: int = DEFAULT_MAX_ANALYSIS_WIDTH
+    # Clockwise degrees applied to every frame (0/90/180/270), for a phone
+    # webcam that sends its picture sideways.
+    rotate: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -169,6 +176,7 @@ class Camera:
             "loop": self.loop,
             "target_fps": self.target_fps,
             "max_width": self.max_width,
+            "rotate": self.rotate,
             "location": self.location,
         }
 
@@ -276,7 +284,7 @@ class LiveSession:
             )
         return LiveStreamReader(
             self.camera.source, loop=self.camera.loop, target_fps=self.camera.target_fps,
-            max_width=self.camera.max_width,
+            max_width=self.camera.max_width, rotate=self.camera.rotate,
         )
 
     @property
@@ -439,6 +447,7 @@ class LiveSession:
             enable_dehaze=spec.fog,
             observe_tracks=self._observe_tracks,
             motion_gate=self.motion_gate,
+            ground_calibration=load_calibration(self.camera.camera_id) if spec.behavior else None,
         )
         pipeline = CombinedPipeline(request)
         # Frame dimensions must be known before the pipeline can scale zone
@@ -902,10 +911,10 @@ class CameraManager:
 
     def add(self, name: str, source: str, loop: bool = False, location: str | None = None,
             camera_id: str | None = None, analysis: AnalysisSpec | None = None,
-            max_width: int = DEFAULT_MAX_ANALYSIS_WIDTH) -> Camera:
+            max_width: int = DEFAULT_MAX_ANALYSIS_WIDTH, rotate: int = 0) -> Camera:
         camera = Camera(
             camera_id=camera_id or uuid.uuid4().hex[:8],
-            name=name, source=source, loop=loop, location=location, max_width=max_width,
+            name=name, source=source, loop=loop, location=location, max_width=max_width, rotate=rotate,
         )
         session = LiveSession(camera, analysis=analysis, store=self.store)
         session.subscribe(self._fanout)

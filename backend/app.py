@@ -463,7 +463,7 @@ def system_status():
         device=detect_device(),
         ocr_available=ocr.available, ocr_status=ocr.status.to_dict(),
         models_present={
-            "yunet": YUNET_MODEL_PATH.is_file(), "sface": SFACE_MODEL_PATH.is_file(), "yolo": YOLO_MODEL_PATH.is_file(),
+            "yunet": YUNET_MODEL_PATH.is_file(), "sface": SFACE_MODEL_PATH.is_file(), "yolo": YOLO_MODEL_PATH.exists(),
         },
         active_jobs=sum(1 for j in jobs if j.status in ("pending", "running")),
         total_jobs=len(jobs),

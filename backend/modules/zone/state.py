@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from math import hypot
 
 from backend.modules.zone.geometry import (
-    point_in_polygon, predicted_entry_eta, velocity_from,
+    distance_to_polygon, point_in_polygon, predicted_entry_eta, velocity_from,
 )
 
 UNKNOWN, OUTSIDE, INSIDE = "UNKNOWN", "OUTSIDE", "INSIDE"
@@ -218,3 +218,17 @@ class ZoneMonitor:
             "ZONE_EXIT", self.zone_id, tid, frame_index, ts,
             {"dwell_duration_sec": round(dwell, 3)},
         ))
+
+
+def anyone_near_zone(points: dict[int, tuple[float, float]], monitors: list[ZoneMonitor],
+                     polygons_px: list, near_px: float) -> bool:
+    """Whether any tracked point is inside a zone, under its live approach
+    warning, or within near_px of its edge - what the adaptive detection
+    stride treats as worth detecting on every frame."""
+    for tid, point in points.items():
+        for monitor, polygon in zip(monitors, polygons_px):
+            if monitor.state_of(tid) == INSIDE or monitor.approaching(tid):
+                return True
+            if distance_to_polygon(point, polygon) <= near_px:
+                return True
+    return False

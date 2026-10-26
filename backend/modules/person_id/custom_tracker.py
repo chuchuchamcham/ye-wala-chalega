@@ -93,6 +93,12 @@ class PersonBotSortTracker:
         # gap_tolerance_frames says.
         self._tracker = BOTSORT(args, frame_rate=max(1, round(frame_rate / self.detection_stride)))
         self._tracker.encoder = self._make_encoder(reid)
+        self._frame_rate = frame_rate
+        self._track_buffer = track_buffer
+        self._last_detect_index: int | None = None
+        # Frames between the tracker's steps right now: detection_stride
+        # normally, 1 while update() is called with urgent=True.
+        self._step_frames = self.detection_stride
 
     def _make_encoder(self, reid: PersonReID):
         def encoder(img: np.ndarray, dets: np.ndarray) -> list[np.ndarray]:
@@ -108,8 +114,29 @@ class PersonBotSortTracker:
 
         return encoder
 
-    def update(self, frame: np.ndarray) -> list[PersonTrack]:
-        """Run YOLO person detection every detection_stride frames, stepping
+    def _set_step_frames(self, step_frames: int) -> None:
+        """Re-times BoT-SORT for a new step interval. Two of its quantities
+        are counted in steps, not frames, and both would be wrong by the
+        stride after a switch: how many steps a lost track is remembered
+        (what __init__ sets through frame_rate), and the Kalman filter's
+        velocities, which are per step - left alone, the first step after
+        speeding up would predict a stride's worth of motion in one frame."""
+        if step_frames == self._step_frames:
+            return
+        scale = step_frames / self._step_frames
+        for track in (*self._tracker.tracked_stracks, *self._tracker.lost_stracks):
+            if getattr(track, "mean", None) is not None:
+                track.mean[4:] *= scale
+                # Same change of units on the uncertainty: P -> S P S.
+                track.covariance[4:, :] *= scale
+                track.covariance[:, 4:] *= scale
+        steps_per_sec = max(1, round(self._frame_rate / step_frames))
+        self._tracker.max_time_lost = int(steps_per_sec / 30.0 * self._track_buffer)
+        self._step_frames = step_frames
+
+    def update(self, frame: np.ndarray, urgent: bool = False) -> list[PersonTrack]:
+        """Run YOLO person detection every detection_stride frames (every
+        frame while urgent, e.g. with the target locked), stepping
         BoT-SORT only on those frames and re-reporting the last result between
         them.
 
@@ -126,7 +153,15 @@ class PersonBotSortTracker:
         nothing. Stepping only on frames that actually carry detections keeps
         every step truthful and costs no extra inference.
         """
-        do_detect = self._frame_index % self.detection_stride == 0
+        do_detect = (
+            urgent
+            or self._last_detect_index is None
+            or self._frame_index - self._last_detect_index >= self.detection_stride
+        )
+        if do_detect:
+            if self._last_detect_index is not None:
+                self._set_step_frames(1 if urgent else self.detection_stride)
+            self._last_detect_index = self._frame_index
         self._frame_index += 1
         if not do_detect:
             return self._last_tracks
@@ -159,4 +194,6 @@ class PersonBotSortTracker:
     def reset(self) -> None:
         self._tracker.reset()
         self._frame_index = 0
+        self._last_detect_index = None
         self._last_tracks = []
+        self._set_step_frames(self.detection_stride)

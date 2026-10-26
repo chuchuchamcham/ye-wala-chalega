@@ -10,7 +10,9 @@ other modules are active). TrackerConfig.detection_stride lets a caller run
 the real detector only every Nth frame and propagate tracks between samples
 via simple linear velocity extrapolation - cheap (pure arithmetic, no model
 call) and bounded (never extrapolates more than stride-1 frames before the
-next real detection resyncs everything). Default stride=1 means "detect
+next real detection resyncs everything). update(urgent=True) overrides the
+stride for one frame, which is how the orchestrator detects every frame
+while something is near a zone or a target is locked. Default stride=1 means "detect
 every frame", byte-for-byte the original behavior - this is opt-in, not a
 default change, so every existing caller/test is unaffected unless it
 explicitly sets a larger stride.
@@ -52,6 +54,8 @@ class ObjectTracker:
         self.class_ids = list(class_ids) if class_ids is not None else None
         self._model = YOLO(str(config.model_path))
         self._frame_index = 0
+        self._last_detect_index: int | None = None
+        self.detection_count = 0  # frames where the model actually ran
         self._last_tracks: dict[int, Track] = {}
         # Real detections only, with the frame each was seen on. Kept apart
         # from _last_tracks because that one is overwritten with extrapolated
@@ -60,12 +64,26 @@ class ObjectTracker:
         self._last_detected: dict[int, tuple[Track, int]] = {}
         self._velocity: dict[int, tuple[float, float, float, float]] = {}
 
-    def update(self, image: np.ndarray) -> list[Track]:
+    def update(self, image: np.ndarray, urgent: bool = False) -> list[Track]:
+        """urgent=True runs the real detector on this frame whatever the
+        stride: the caller has something worth watching closely (a track
+        near a zone, a locked target), where a box extrapolated for up to
+        stride-1 frames could miss the moment it crosses a line. Otherwise
+        the detector runs once detection_stride frames have passed since it
+        last ran - counted from the last detection, not the frame number, so
+        dropping back from urgent frames does not detect early or late."""
         stride = max(1, self.config.detection_stride)
-        do_detect = self._frame_index % stride == 0
+        do_detect = (
+            urgent
+            or self._last_detect_index is None
+            or self._frame_index - self._last_detect_index >= stride
+        )
+        if do_detect:
+            self._last_detect_index = self._frame_index
         self._frame_index += 1
 
         if do_detect:
+            self.detection_count += 1
             tracks = self._detect(image)
             self._remember(tracks)
             return tracks

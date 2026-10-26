@@ -1,6 +1,34 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { authApi, type SessionUser } from "../../api/auth";
+import { useLiveEvents } from "../../hooks/useLiveEvents";
+import { playSiren, unlockAudioOnFirstGesture } from "../../lib/siren";
 import { Sidebar } from "./Sidebar";
+
+// Alarms older than this are replayed backlog from a reconnect, not news.
+const FRESH_ALARM_SEC = 20;
+
+/** Sounds the siren on this machine for live alarms on every page, so the
+ * operator hears it while looking at the map or a search, not only on Live
+ * Monitor. Live Monitor plays its own (with its "sound blocked" banner). */
+function GlobalSiren() {
+  const { latestAlarm } = useLiveEvents();
+  const { pathname } = useLocation();
+  const sounded = useRef<string | null>(null);
+
+  useEffect(() => unlockAudioOnFirstGesture(), []);
+
+  useEffect(() => {
+    if (!latestAlarm || pathname.startsWith("/live")) return;
+    const key = latestAlarm.event_id ?? `${latestAlarm.type}@${latestAlarm.wall_time}`;
+    if (sounded.current === key) return;
+    sounded.current = key;
+    if (Date.now() / 1000 - latestAlarm.wall_time > FRESH_ALARM_SEC) return;
+    void playSiren();
+  }, [latestAlarm, pathname]);
+
+  return null;
+}
 
 export function AppLayout({
   children,
@@ -13,6 +41,7 @@ export function AppLayout({
 }) {
   return (
     <div className="flex min-h-screen">
+      <GlobalSiren />
       <Sidebar user={user} onSignedOut={onSignedOut} />
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>

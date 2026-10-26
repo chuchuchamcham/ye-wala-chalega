@@ -49,7 +49,7 @@ def packages() -> None:
 def model_files() -> None:
     from backend.config import OSNET_MODEL_PATH, SFACE_MODEL_PATH, YOLO_MODEL_PATH, YUNET_MODEL_PATH
 
-    missing = [p.name for p in (YOLO_MODEL_PATH, YUNET_MODEL_PATH, SFACE_MODEL_PATH, OSNET_MODEL_PATH) if not p.is_file()]
+    missing = [p.name for p in (YOLO_MODEL_PATH, YUNET_MODEL_PATH, SFACE_MODEL_PATH, OSNET_MODEL_PATH) if not p.exists()]
     check("Detection model files", FAIL if missing else OK,
           f"missing in models/: {', '.join(missing)}" if missing else "YOLO, face and re-identification models present")
     home = Path.home()

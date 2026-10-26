@@ -6,8 +6,9 @@ export type EventSeverity = "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export interface LiveCamera {
   camera_id: string;
   name: string;
-  source_kind: "rtsp" | "file";
+  source_kind: "rtsp" | "file" | "webcam" | "phone";
   loop: boolean;
+  rotate?: number;
   target_fps: number;
   location: string | null;
   state: CameraState;
@@ -29,6 +30,15 @@ export interface LiveCamera {
   zone_ids: string[];
   analysis_error: string | null;
   event_count: number;
+}
+
+/** A rectangle on the ground with its real size: lets behaviour analytics
+ * measure in metres. Points are normalized, in order around the rectangle. */
+export interface GroundCalibration {
+  calibrated: boolean;
+  points?: [number, number][];
+  width_m?: number;
+  depth_m?: number;
 }
 
 export interface LiveEvent {
@@ -88,10 +98,15 @@ export const liveApi = {
   getCamera: (id: string) => api.get<LiveCamera>(`/api/live/cameras/${id}`),
   start: (id: string) => api.post<LiveCamera>(`/api/live/cameras/${id}/start`),
   stop: (id: string) => api.post<LiveCamera>(`/api/live/cameras/${id}/stop`),
+  rotate: (id: string, degrees: number) => api.post<LiveCamera>(`/api/live/cameras/${id}/rotate`, { degrees }),
   configureAnalysis: (id: string, config: AnalysisConfig) =>
     api.put<LiveCamera>(`/api/live/cameras/${id}/analysis`, config),
   createZone: (id: string, zone: { label: string; shape: "rectangle" | "polygon"; points: number[][] }) =>
     api.post<{ zone_id: string; label: string }>(`/api/live/cameras/${id}/zones`, zone),
+  getCalibration: (id: string) => api.get<GroundCalibration>(`/api/live/cameras/${id}/calibration`),
+  setCalibration: (id: string, c: { points: [number, number][]; width_m: number; depth_m: number }) =>
+    api.put<GroundCalibration>(`/api/live/cameras/${id}/calibration`, c),
+  clearCalibration: (id: string) => api.del<GroundCalibration>(`/api/live/cameras/${id}/calibration`),
   talkdownStatus: () => api.get<{ auto: boolean; speakers: Record<string, number> }>("/api/live/talkdown"),
   setTalkdownAuto: (auto: boolean) =>
     api.put<{ auto: boolean; speakers: Record<string, number> }>("/api/live/talkdown", { auto }),

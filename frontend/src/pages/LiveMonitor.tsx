@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, BellRing, Plus, Radio, RefreshCw, Settings2, Siren, Square, VolumeX, Wifi,
+  AlertTriangle, BellRing, Plus, Radio, RefreshCw, RotateCw, Settings2, Siren, Square, VolumeX, Wifi,
   WifiOff, X,
 } from "lucide-react";
 import { Panel } from "../components/common/Panel";
@@ -348,6 +348,19 @@ export function LiveMonitor() {
                 >
                   {setupOpen ? <X size={12} /> : <Settings2 size={12} />} Configure
                 </button>
+                {(selected.source_kind === "webcam" || selected.source_kind === "rtsp") && (
+                  <button
+                    onClick={async () => {
+                      await liveApi.rotate(selected.camera_id, ((selected.rotate ?? 0) + 90) % 360);
+                      await refresh();
+                      setStreamNonce(Date.now());
+                    }}
+                    title="Rotate the picture 90° clockwise (for a sideways phone webcam)"
+                    className="flex items-center gap-1.5 rounded border border-border-2 px-2.5 py-1.5 text-[12px] text-text-secondary hover:bg-bg-3 hover:text-text-primary"
+                  >
+                    <RotateCw size={12} /> Rotate{selected.rotate ? ` ${selected.rotate}°` : ""}
+                  </button>
+                )}
                 <button
                   onClick={() => setStreamNonce(Date.now())}
                   title="Reconnect video"

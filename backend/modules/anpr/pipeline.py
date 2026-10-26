@@ -31,6 +31,7 @@ from backend.core.video import VideoInfo, VideoReader
 from backend.modules.anpr.aggregator import PlateAggregator
 from backend.modules.anpr.ocr import PlateOcr, normalize_plate, plates_match
 from backend.modules.anpr.plate_detector import PlateDetector
+from backend.modules.anpr.quality import rejection_reason as plate_rejection_reason
 from backend.modules.anpr.validate import is_plausible_plate
 
 
@@ -70,6 +71,7 @@ class AnprResult:
     events: list[dict]
     ocr_status: dict
     lowlight_stats: dict | None = None
+    plate_crops_skipped: dict = field(default_factory=dict)  # reason -> crops not sent to OCR
 
 
 class AnprPipeline:
@@ -117,6 +119,7 @@ class AnprPipeline:
         plate_confirmed_seen: set[int] = set()
         lowlight_enhanced_count = 0
         lowlight_lowlight_count = 0
+        plate_quality_skipped: dict[str, int] = {}
 
         with VideoReader(video_path) as reader:
             writer = OutputVideoWriter(output_path, reader.info)
@@ -163,6 +166,10 @@ class AnprPipeline:
 
                         px1, py1, px2, py2 = candidate.bbox
                         plate_crop = crop[py1:py2, px1:px2]
+                        skip = plate_rejection_reason(plate_crop, cfg)
+                        if skip is not None:
+                            plate_quality_skipped[skip] = plate_quality_skipped.get(skip, 0) + 1
+                            continue
                         text, confidence = self.ocr.read(plate_crop)
                         if text is None or confidence is None or confidence < cfg.min_read_confidence:
                             continue
@@ -271,6 +278,7 @@ class AnprPipeline:
                 key=lambda d: d["frame_index"],
             ),
             ocr_status=self.ocr.status.to_dict(),
+            plate_crops_skipped=plate_quality_skipped,
             lowlight_stats=(
                 {
                     "low_light_detected": lowlight_lowlight_count > 0,
