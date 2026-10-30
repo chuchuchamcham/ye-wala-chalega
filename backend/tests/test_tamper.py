@@ -70,6 +70,13 @@ def test_restoring_the_view_is_reported_after_it_holds():
     assert monitor.tampered is None
 
 
+def test_a_person_lingering_close_to_the_lens_is_not_a_move():
+    monitor, clock = warmed_up()
+    near = scene()
+    near[:, 60:580] = scene(seed=7)[:, 60:580]  # a figure filling most of the frame
+    assert feed(monitor, clock, near, 20) == []
+
+
 def test_slow_dusk_is_not_tampering():
     monitor, clock = warmed_up()
     reports = []

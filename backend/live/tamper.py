@@ -39,6 +39,16 @@ class TamperConfig:
     blurred_ratio: float = 0.2
     # Moved: similarity to the usual scene falls below this (1.0 = identical).
     moved_similarity: float = 0.35
+    # ...and at most this share of the frame's tiles still look the same. A
+    # person standing close to the lens covers the middle but leaves the edges
+    # of the scene in view; a camera pushed to point elsewhere changes them all.
+    moved_max_unchanged: float = 0.25
+    # A tile counts as unchanged when its mean difference from the usual
+    # scene (in normalised brightness units) is below this.
+    tile_unchanged_diff: float = 0.6
+    # Moved must hold longer than covered/blurred: someone lingering in front
+    # of the camera is common, a real push leaves the view changed for good.
+    moved_persist_sec: float = 5.0
     # A condition must hold this long before it is reported, so a bird or a
     # person walking past the lens never raises it.
     persist_sec: float = 3.0
@@ -104,7 +114,7 @@ class TamperMonitor:
             kind = COVERED
         elif sharp < cfg.blurred_ratio * self._sharp:
             kind = BLURRED
-        elif similarity < cfg.moved_similarity:
+        elif similarity < cfg.moved_similarity and self._unchanged_share(thumb) <= cfg.moved_max_unchanged:
             kind = MOVED
         else:
             kind = None
@@ -127,11 +137,18 @@ class TamperMonitor:
         if kind != self._suspect:
             self._suspect, self._suspect_since = kind, now
             return None
-        if self._reported is None and now - self._suspect_since >= cfg.persist_sec:
+        persist = cfg.moved_persist_sec if kind == MOVED else cfg.persist_sec
+        if self._reported is None and now - self._suspect_since >= persist:
             self._reported = kind
             baseline = {"spread": round(self._std, 1), "sharpness": round(self._sharp, 1)}
             return TamperReading(kind=kind, detail=_DETAIL[kind], baseline=baseline, current=current)
         return None
+
+    def _unchanged_share(self, thumb: np.ndarray) -> float:
+        """Share of 4x3 tiles across the frame that still match the usual scene."""
+        diff = np.abs(thumb - self._scene)
+        tiles = [diff[r:r + 6, c:c + 8].mean() for r in range(0, 18, 6) for c in range(0, 32, 8)]
+        return sum(d < self.config.tile_unchanged_diff for d in tiles) / len(tiles)
 
     def _learn(self, std: float, sharp: float, thumb: np.ndarray, rate: float) -> None:
         self._std += rate * (std - self._std)
