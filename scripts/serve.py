@@ -31,6 +31,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+# Google sign-in for the demo ("Drishti Login" project). A client ID is
+# public - it ships in the frontend bundle - so defaulting it here is safe.
+# Set GOOGLE_CLIENT_ID= (empty) to start without sign-in.
+os.environ.setdefault(
+    "GOOGLE_CLIENT_ID", "989388168434-828tilr4ac5pp3qirvjou30iag4didca.apps.googleusercontent.com"
+)
+
 import uvicorn  # noqa: E402
 
 from backend.api.network import lan_addresses  # noqa: E402
