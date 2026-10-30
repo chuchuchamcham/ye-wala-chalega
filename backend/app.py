@@ -30,7 +30,7 @@ from backend.agent.models import build_chain
 from backend.agent.service import AgentService
 from backend.api.agent import router as agent_router
 from backend.api.agent import set_service as set_agent_service
-from backend.api.auth import _token_from, decode_token, has_users, is_public_path, no_login
+from backend.api.auth import _token_from, decode_token, google_client_id, has_users, is_public_path, no_login
 from backend.api.auth_routes import router as auth_router
 from backend.api.jobs import job_manager
 from backend.api.live import router as live_router
@@ -147,14 +147,14 @@ async def require_authentication(request: Request, call_next):
     ):
         return await call_next(request)
 
-    if not has_users():
+    token = _token_from(request)
+    if token is not None and decode_token(token) is not None:
+        return await call_next(request)
+    if not has_users() and not google_client_id():
         return JSONResponse(
             {"detail": "no accounts configured - create the first administrator"}, status_code=401,
         )
-    token = _token_from(request)
-    if token is None or decode_token(token) is None:
-        return JSONResponse({"detail": "authentication required"}, status_code=401)
-    return await call_next(request)
+    return JSONResponse({"detail": "authentication required"}, status_code=401)
 
 
 @app.exception_handler(NotFoundError)

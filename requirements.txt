@@ -26,6 +26,11 @@ pyyaml
 #   Debian/Ubuntu: sudo apt install tesseract-ocr
 #   macOS: brew install tesseract
 # Without the system binary, ANPR falls back further (OCR text stays empty).
+# Sign in with Google: verifies the ID token (backend/api/auth_routes.py).
+# Needs requests for the transport.
+google-auth==2.40.3
+requests
+
 pytesseract
 
 # ANPR primary detector/OCR: a real trained plate detector (open-image-models,

@@ -141,5 +141,21 @@ class PlateDetector:
         except Exception:
             return None
 
+    # The neural detector boxes plates tightly, often shaving the last
+    # character: 'PB65BC7993' read as 'PB65BC799', 'HR03P3521' as
+    # 'HR03P352'. A margin around the box gives OCR the whole plate.
+    # Measured on the Chandigarh street clip: 8% recovered those reads and
+    # confirmed two more plates; 15% started pulling in bumper edges.
+    PLATE_MARGIN = 0.08
+
     def locate(self, vehicle_crop: np.ndarray) -> PlateCandidate | None:
-        return self._impl.locate(vehicle_crop)
+        candidate = self._impl.locate(vehicle_crop)
+        if candidate is None:
+            return None
+        x1, y1, x2, y2 = candidate.bbox
+        mx, my = int((x2 - x1) * self.PLATE_MARGIN), int((y2 - y1) * self.PLATE_MARGIN)
+        h, w = vehicle_crop.shape[:2]
+        return PlateCandidate(
+            bbox=(max(0, x1 - mx), max(0, y1 - my), min(w, x2 + mx), min(h, y2 + my)),
+            confidence=candidate.confidence,
+        )

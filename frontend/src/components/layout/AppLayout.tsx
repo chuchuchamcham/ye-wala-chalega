@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
+import { googleLogout } from "@react-oauth/google";
 import { authApi, type SessionUser } from "../../api/auth";
 import { useLiveEvents } from "../../hooks/useLiveEvents";
 import { playSiren, unlockAudioOnFirstGesture } from "../../lib/siren";
@@ -59,10 +60,27 @@ export function SessionFooter({
   if (!user) return null;
   return (
     <div className="border-t border-border-1 px-1 pt-3">
-      <div className="truncate text-[12px] font-semibold text-text-primary">{user.username}</div>
-      <div className="mb-2 text-[11px] capitalize text-text-tertiary">{user.role}</div>
+      <div className="mb-2 flex items-center gap-2">
+        {user.picture && (
+          <img
+            src={user.picture}
+            alt=""
+            referrerPolicy="no-referrer"
+            className="h-8 w-8 shrink-0 rounded-full"
+          />
+        )}
+        <div className="min-w-0">
+          <div className="truncate text-[12px] font-semibold text-text-primary">
+            {user.name || user.username}
+          </div>
+          <div className="truncate text-[11px] text-text-tertiary">
+            {user.email || <span className="capitalize">{user.role}</span>}
+          </div>
+        </div>
+      </div>
       <button
         onClick={() => {
+          if (user.email) googleLogout();
           void authApi.logout().finally(() => onSignedOut?.());
         }}
         className="w-full rounded-full bg-bg-3 py-1.5 text-[12px] font-medium text-text-secondary hover:bg-bg-4 hover:text-text-primary"

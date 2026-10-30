@@ -54,7 +54,7 @@ PBKDF2_ROUNDS = 240_000
 # read-only surfaces and the data they carry is already on the operator's
 # screen. Everything else requires a session.
 PUBLIC_PATHS = {
-    "/api/auth/login", "/api/auth/bootstrap", "/api/auth/me",
+    "/api/auth/login", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/me",
     "/api/live/siren", "/api/live/speaker", "/api/live/sw.js", "/api/live/phone", "/api/live/siren-app",
     "/docs", "/openapi.json", "/redoc",
 }
@@ -98,6 +98,16 @@ def verify_password(password: str, stored: str) -> bool:
 class User:
     username: str
     role: str
+    # Filled only for Google sign-ins; password accounts leave them empty.
+    name: str = ""
+    email: str = ""
+    picture: str = ""
+
+    def public(self) -> dict:
+        d = {"username": self.username, "role": self.role}
+        if self.email:
+            d.update(name=self.name, email=self.email, picture=self.picture)
+        return d
 
 
 def _load_users() -> dict:
@@ -151,6 +161,8 @@ def authenticate(username: str, password: str) -> User | None:
 
 def issue_token(user: User) -> str:
     payload = {"sub": user.username, "role": user.role, "exp": time.time() + TOKEN_TTL_SEC}
+    if user.email:
+        payload.update(name=user.name, email=user.email, picture=user.picture)
     raw = json.dumps(payload, separators=(",", ":")).encode()
     body = base64.urlsafe_b64encode(raw).decode().rstrip("=")
     signature = hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()
@@ -172,7 +184,10 @@ def decode_token(token: str) -> User | None:
         return None
     if payload.get("exp", 0) < time.time():
         return None
-    return User(username=payload.get("sub", ""), role=payload.get("role", AUDITOR))
+    return User(
+        username=payload.get("sub", ""), role=payload.get("role", AUDITOR),
+        name=payload.get("name", ""), email=payload.get("email", ""), picture=payload.get("picture", ""),
+    )
 
 
 # --- FastAPI dependencies ----------------------------------------------------
@@ -192,20 +207,25 @@ def _token_from(request: Request) -> str | None:
 NO_LOGIN_USER = User(username="local-admin", role=ADMIN)
 
 
+def google_client_id() -> str:
+    """OAuth Web client ID. Setting it turns sign-in on (Google becomes the front door)."""
+    return os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+
+
 def no_login() -> bool:
-    return not os.environ.get("DRISHTI_LOGIN")
+    return not os.environ.get("DRISHTI_LOGIN") and not google_client_id()
 
 
 def current_user(request: Request) -> User:
     if no_login():
         return NO_LOGIN_USER
-    if not has_users():
+    token = _token_from(request)
+    user = decode_token(token) if token else None
+    if user is None and not has_users() and not google_client_id():
         # Before any account exists the system is unconfigured, not open: only
         # the bootstrap endpoint is reachable, and it is what creates the first
         # admin.
         raise HTTPException(401, "no accounts configured - create the first administrator")
-    token = _token_from(request)
-    user = decode_token(token) if token else None
     if user is None:
         raise HTTPException(401, "authentication required")
     return user

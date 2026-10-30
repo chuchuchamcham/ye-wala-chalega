@@ -1,7 +1,12 @@
 import { useState } from "react";
+import { GoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
 import { Eye, Loader2, ShieldCheck } from "lucide-react";
 import { ApiError } from "../api/client";
 import { authApi, type SessionState } from "../api/auth";
+
+// Set in frontend/.env (see .env.example). Empty = Google sign-in is hidden
+// and the password form below is the only way in.
+const GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() ?? "";
 
 /**
  * Sign-in, and first-run administrator creation.
@@ -26,6 +31,23 @@ export function Login({ session, onSignedIn }: { session: SessionState; onSigned
     username.trim().length > 0 &&
     password.length > 0 &&
     (!firstRun || (password.length >= 8 && confirm === password));
+
+  async function onGoogle(credential: string | undefined) {
+    if (!credential) {
+      setError("Google did not return a credential");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await authApi.google(credential);
+      onSignedIn();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Google sign-in failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -64,11 +86,36 @@ export function Login({ session, onSignedIn }: { session: SessionState; onSigned
               : "Camera feeds, evidence and the audit trail require a signed-in account."}
           </p>
 
+          {GOOGLE_CLIENT_ID ? (
+            <>
+              <div className="flex justify-center">
+                <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+                  <GoogleLogin
+                    onSuccess={(res) => void onGoogle(res.credential)}
+                    onError={() => setError("Google sign-in was cancelled or failed")}
+                    theme="filled_black"
+                    shape="pill"
+                    size="large"
+                    text="signin_with"
+                  />
+                </GoogleOAuthProvider>
+              </div>
+              <div className="my-4 flex items-center gap-3 text-[11px] text-text-tertiary">
+                <span className="h-px flex-1 bg-border-1" />
+                or use a local account
+                <span className="h-px flex-1 bg-border-1" />
+              </div>
+            </>
+          ) : (
+            <div className="mb-4 rounded border border-border-2 bg-bg-3 px-3 py-2 text-[11.5px] text-text-tertiary">
+              Google sign-in isn&apos;t configured (set VITE_GOOGLE_CLIENT_ID). Use a local account.
+            </div>
+          )}
+
           <label className="mb-1 block text-[11.5px] font-semibold text-text-secondary">Username</label>
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            autoFocus
             autoComplete="username"
             className="mb-3 w-full rounded border border-border-2 bg-bg-3 px-3 py-2 text-[13px] text-text-primary focus:border-accent-blue focus:outline-none"
           />

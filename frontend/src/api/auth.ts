@@ -5,6 +5,10 @@ export type Role = "ADMIN" | "OPERATOR" | "AUDITOR";
 export interface SessionUser {
   username: string;
   role: Role;
+  /** Present for Google sign-ins only. */
+  name?: string;
+  email?: string;
+  picture?: string;
 }
 
 export interface SessionState {
@@ -29,6 +33,8 @@ export const authApi = {
   me: () => api.get<SessionState>("/api/auth/me"),
   login: (username: string, password: string) =>
     api.post<{ token: string; user: SessionUser }>("/api/auth/login", { username, password }),
+  google: (credential: string) =>
+    api.post<{ token: string; user: SessionUser }>("/api/auth/google", { credential }),
   bootstrap: (username: string, password: string) =>
     api.post<{ token: string; user: SessionUser }>("/api/auth/bootstrap", { username, password }),
   logout: () => api.post<{ ok: boolean }>("/api/auth/logout"),
