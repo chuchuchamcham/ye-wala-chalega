@@ -80,3 +80,14 @@ def test_same_person_scores_above_threshold_different_person_does_not(detector, 
     votes_diff, sim_diff = refset.vote(emb_diff, cfg.similarity_threshold)
     assert votes_diff == 0
     assert sim_diff < cfg.similarity_threshold
+
+
+@pytest.mark.parametrize("rotation", [cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE])
+def test_a_sideways_or_upside_down_photo_is_still_usable(tmp_path, detector, recognizer, rotation):
+    turned = tmp_path / "turned.jpg"
+    cv2.imwrite(str(turned), cv2.rotate(cv2.imread(str(TARGET_REF1)), rotation))
+    refs = ReferenceSet([turned], detector, recognizer)
+    assert refs.usable_count == 1 and refs.rejected == []
+    upright = ReferenceSet([TARGET_REF2], detector, recognizer)
+    _, best = upright.vote(refs.embeddings[0].embedding, threshold=PersonIDConfig().similarity_threshold)
+    assert best >= PersonIDConfig().similarity_threshold

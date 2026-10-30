@@ -35,6 +35,33 @@ class FaceRecognizer:
         return float(self._recognizer.match(feat_a, feat_b, cv2.FaceRecognizerSF_FR_COSINE))
 
 
+_ROTATIONS = (None, cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+
+def upright_face(image: np.ndarray, detector: FaceDetector) -> tuple[np.ndarray, FaceDetection | None]:
+    """Finds the face in a reference photo, turning the photo if needed.
+
+    Phone photos often arrive sideways or upside down (orientation metadata
+    lost on the way), and the face detector only finds upright faces. Returns
+    the image the face was found in, so it can be embedded and kept upright.
+    """
+    # The detector also finds tilted and even upside-down faces, just with a
+    # lower score - so every orientation is tried and the most confident face
+    # with level eyes above the mouth wins.
+    best, best_key = (image, None), None
+    for rotation in _ROTATIONS:
+        turned = image if rotation is None else cv2.rotate(image, rotation)
+        face = detector.best(turned)
+        if face is None:
+            continue
+        r = face.raw
+        upright = abs(r[6] - r[4]) > abs(r[7] - r[5]) and (r[11] + r[13]) / 2 > (r[5] + r[7]) / 2
+        key = (upright, float(r[14]))
+        if best_key is None or key > best_key:
+            best, best_key = (turned, face), key
+    return best
+
+
 @dataclass
 class ReferenceEmbedding:
     source_path: Path
@@ -63,7 +90,7 @@ class ReferenceSet:
             if image is None:
                 self.rejected.append((path, "unreadable image file"))
                 continue
-            face = detector.best(image)
+            image, face = upright_face(image, detector)
             if face is None:
                 self.rejected.append((path, "no face detected"))
                 continue

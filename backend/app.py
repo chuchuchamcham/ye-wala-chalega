@@ -222,7 +222,27 @@ async def upload_references(files: list[UploadFile]):
     if any(not data for _, data in payload):
         raise HTTPException(400, "one or more uploaded reference photos were empty")
     ref_id, paths = save_reference_photos(payload)
-    return ReferenceUploadOut(reference_set_id=ref_id, photo_count=len(paths))
+    # Check the faces now: a set with no usable face would otherwise only fail
+    # once a camera starts matching against it. Sideways photos are turned
+    # upright on disk so every later use sees the face the right way up.
+    from backend.modules.person_id.detector import FaceDetector
+    from backend.modules.person_id.recognizer import upright_face
+    from backend.config import YUNET_MODEL_PATH
+
+    detector = FaceDetector(YUNET_MODEL_PATH)
+    no_face = []
+    for (name, _), path in zip(payload, paths):
+        image = cv2.imread(str(path))
+        upright, face = upright_face(image, detector) if image is not None else (None, None)
+        if face is None:
+            no_face.append(name)
+        elif upright is not image:
+            cv2.imwrite(str(path), upright)
+    if len(no_face) == len(paths):
+        raise HTTPException(
+            400, f"no face found in {', '.join(no_face)} - use a clear photo with the face visible",
+        )
+    return ReferenceUploadOut(reference_set_id=ref_id, photo_count=len(paths) - len(no_face))
 
 
 # --- zones --------------------------------------------------------------------

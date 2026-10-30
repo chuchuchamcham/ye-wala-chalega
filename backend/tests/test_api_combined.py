@@ -212,19 +212,13 @@ def test_reference_set_not_found_returns_404():
     assert resp.status_code == 404
 
 
-def test_missing_face_in_reference_photo_fails_job_gracefully_not_a_traceback(tmp_path):
-    video_id = _upload_video(PERSON_VIDEO)
+def test_reference_photo_without_a_face_is_rejected_at_upload(tmp_path):
     blank_path = tmp_path / "blank.jpg"
     cv2.imwrite(str(blank_path), np.full((200, 200, 3), 128, dtype=np.uint8))
-    ref_id = _upload_references([blank_path])
-
-    resp = client.post("/api/jobs", json={"video_id": video_id, "person_id": {"reference_set_id": ref_id}})
-    assert resp.status_code == 200  # job accepted; the failure surfaces async
-    job_id = resp.json()["job_id"]
-    job = _poll_job(job_id)
-    assert job["status"] == "failed"
-    assert job["error"]  # a real message
-    assert "Traceback" not in job["error"]  # not a raw Python traceback
+    with open(blank_path, "rb") as fh:
+        resp = client.post("/api/references", files=[("files", ("blank.jpg", fh, "image/jpeg"))])
+    assert resp.status_code == 400
+    assert "no face found in blank.jpg" in resp.json()["detail"]
 
 
 def test_invalid_video_file_is_rejected_at_upload():
