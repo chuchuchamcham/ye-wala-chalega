@@ -26,7 +26,7 @@ import cv2
 import numpy as np
 
 from backend.config import (
-    AnprConfig, BehaviorConfig, EVENT_DB_PATH, EVIDENCE_DIR, PersonIDConfig,
+    AnprConfig, BehaviorConfig, EVENT_DB_PATH, EVIDENCE_DIR, PersonIDConfig, TrackerConfig,
 )
 from backend.core.events import ALARM_SEVERITIES, describe_event, severity_for
 from backend.core.video import (
@@ -36,6 +36,7 @@ from backend.core.video import (
 from backend.core.motion import MotionGate
 from backend.live.crowd import PERSON_CLASS, GroupWatch
 from backend.live.evidence import EvidenceRecorder
+from backend.live.frame_feed import LiveFrameFeed
 from backend.live.false_alarms import memory as false_alarm_memory
 from backend.live.tamper import TamperMonitor, TamperReading, TappedReader
 from backend.live.target_registry import target_registry
@@ -91,6 +92,13 @@ def live_behavior_config() -> BehaviorConfig:
     )
 
 
+def live_tracker_config() -> TrackerConfig:
+    """Live keeps the person tracker at its normal stride when a target is
+    locked - see TrackerConfig.adaptive_person_stride. The zone urgency
+    stays on: it only runs the shared detector more often near a zone."""
+    return TrackerConfig(adaptive_person_stride=False)
+
+
 def live_anpr_config() -> AnprConfig:
     """ANPR sampling retuned for live analysis rates.
 
@@ -122,8 +130,14 @@ def live_person_id_config() -> PersonIDConfig:
     face look per second, so a target has to stand still for many seconds
     before confirmation_observations can be met. A person who merely walks
     through the view is read once, or not at all.
+
+    Every second frame, not every frame: at the 12fps live capture rate that
+    is still six face looks a second, and checking every frame was what
+    capped a camera with people close in view at ~4fps - so its video lagged.
+    Measured on the street demo clip: every frame 3.6fps, every 2nd 7.4fps,
+    target confirmed both ways.
     """
-    return PersonIDConfig(face_sample_stride=1, reid_sample_stride=1)
+    return PersonIDConfig(face_sample_stride=2, reid_sample_stride=2)
 
 
 # Capture rate for live analysis. Deliberately far below what the demo clips
@@ -260,6 +274,15 @@ class LiveSession:
         self._event_lock = threading.Lock()
         self._analysis_error: str | None = None
         self._alarm_gate: dict[str, float] = {}
+        # Live video at camera speed (see _on_camera_frame): the clean frame
+        # the analysis is working on, and what it drew last time as a
+        # (mask, pixels) overlay to lay over fresh camera frames.
+        self._analysis_clean = None
+        self._overlay = None
+        self._show_analysed = False
+        self._last_display_at = 0.0
+        self._last_evidence_at = 0.0
+        self._analysed_times: deque[float] = deque(maxlen=20)
         self._last_health: str | None = None
         self.evidence = EvidenceRecorder(camera.camera_id, EVIDENCE_DIR / "live")
         self.tamper = TamperMonitor()
@@ -437,6 +460,7 @@ class LiveSession:
             share_appearance=share,
             match_shared_appearance=match,
             person_id_config=live_person_id_config(),
+            tracker_config=live_tracker_config(),
             enable_anpr=spec.anpr,
             target_plate=spec.target_plate,
             anpr_config=live_anpr_config(),
@@ -453,9 +477,12 @@ class LiveSession:
         # Frame dimensions must be known before the pipeline can scale zone
         # polygons, so the stream is opened up front rather than lazily.
         self.reader.connect()
+        self._overlay, self._show_analysed = None, False
         pipeline.run(
-            # Tamper checks see each frame before the pipeline draws on it.
-            reader=TappedReader(self.reader, self._check_tamper),
+            # The feed reads the camera at full speed for the display; the
+            # pipeline takes the newest frame whenever it is free. Tamper
+            # checks still see each analysed frame before anything is drawn.
+            reader=TappedReader(LiveFrameFeed(self.reader, self._on_camera_frame), self._before_analysis),
             write_output=False,
             frame_callback=self._on_analysed_frame,
         )
@@ -487,10 +514,57 @@ class LiveSession:
             except Exception:
                 logger.exception("track observer failed on %s", self.camera.camera_id)
 
+    # Above this share of changed pixels the analysis has reworked the whole
+    # picture (low-light or fog enhancement), not just drawn on it, so the
+    # analysed frames are shown as they are instead of a raw feed.
+    WHOLE_FRAME_CHANGE = 0.4
+    DISPLAY_MAX_FPS = 25.0
+
+    def _before_analysis(self, image) -> None:
+        self._check_tamper(image)
+        self._analysis_clean = image.copy()
+
     def _on_analysed_frame(self, image, new_events: list[dict]) -> None:
-        self._publish(image)
+        self._analysed_times.append(time.monotonic())
+        clean = self._analysis_clean
+        if clean is not None and clean.shape == image.shape:
+            # Whatever the pipeline drew - boxes, labels, zones, banners - is
+            # exactly the pixels that changed. Keep them as the overlay.
+            mask = cv2.absdiff(image, clean).max(axis=2) > 0
+            if mask.mean() > self.WHOLE_FRAME_CHANGE:
+                self._overlay, self._show_analysed = None, True
+            else:
+                self._overlay, self._show_analysed = (mask, image.copy()), False
+        else:
+            self._overlay, self._show_analysed = None, True
+        if self._show_analysed:
+            self._publish(image)
         for event in new_events:
             self.emit_event(event)
+
+    def _on_camera_frame(self, frame) -> None:
+        """Every frame the camera delivers, with the analysis's latest
+        drawings laid over it - so the video plays at camera speed while the
+        boxes update at analysis speed."""
+        if self._show_analysed:
+            return
+        now = time.monotonic()
+        if now - self._last_display_at < 1.0 / self.DISPLAY_MAX_FPS:
+            return
+        self._last_display_at = now
+        overlay = self._overlay
+        image = frame.image
+        if overlay is not None and overlay[0].shape == image.shape[:2]:
+            image = image.copy()
+            image[overlay[0]] = overlay[1][overlay[0]]
+        self._publish(image)
+
+    @property
+    def analysis_fps(self) -> float:
+        times = self._analysed_times
+        if len(times) < 2 or time.monotonic() - times[-1] > 3.0:
+            return 0.0
+        return round((len(times) - 1) / (times[-1] - times[0]), 2) if times[-1] > times[0] else 0.0
 
     def emit_event(self, event: dict) -> dict:
         """Stamp an event with camera, severity and reason, then publish it.
@@ -656,8 +730,13 @@ class LiveSession:
             self._frame_seq += 1
             self._condition.notify_all()
         # The same encoded frame feeds the evidence buffer, so keeping a
-        # rolling window costs no extra encoding.
-        self.evidence.add_frame(jpeg)
+        # rolling window costs no extra encoding. Sampled at the clip's own
+        # rate: the display now runs at camera speed, and a clip written at
+        # clip_fps from every display frame would play back in slow motion.
+        now = time.monotonic()
+        if now - self._last_evidence_at >= 1.0 / self.evidence.config.clip_fps:
+            self._last_evidence_at = now
+            self.evidence.add_frame(jpeg)
 
     # --- viewer side ---------------------------------------------------------
 
@@ -709,6 +788,9 @@ class LiveSession:
             "target_plate": self.analysis.target_plate,
             "zone_ids": [z.zone_id for z in self.analysis.zones],
             "analysis_error": self._analysis_error,
+            # measured_fps is the video (camera) rate; this is how many of
+            # those frames the analysis gets through.
+            "analysis_fps": self.analysis_fps if self.analysis.any_enabled else None,
             "event_count": len(self._recent_events),
             # Share of frames the detector skipped because nothing moved.
             "ai_idle_share": round(self.motion_gate.idle_share, 2) if self.motion_gate else None,

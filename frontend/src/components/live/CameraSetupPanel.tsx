@@ -6,20 +6,17 @@ import type { Zone } from "../../api/types";
 import { getZone } from "../../api/zones";
 import { ReferencePhotoUpload } from "../analysis/ReferencePhotoUpload";
 import { ZoneDrawer } from "../analysis/ZoneDrawer";
-import { CalibrationEditor } from "./CalibrationEditor";
 
 interface ModuleState {
   person_id: boolean;
   anpr: boolean;
-  behavior: boolean;
   lowlight: boolean;
   fog: boolean;
 }
 
 const MODULE_LABELS: { key: keyof ModuleState; label: string; hint: string }[] = [
-  { key: "person_id", label: "Target Person ID", hint: "Needs reference photos" },
+  { key: "person_id", label: "Target Person ID", hint: "Needs reference photos · searched on every camera" },
   { key: "anpr", label: "ANPR / Plate OCR", hint: "Reads vehicle number plates" },
-  { key: "behavior", label: "Behaviour Analytics", hint: "Loitering, pacing, abnormal speed" },
   { key: "lowlight", label: "Low-Light Enhancement", hint: "Auto-detects and enhances dark frames" },
   { key: "fog", label: "Fog Mode", hint: "Clears haze before detection, only on foggy frames" },
 ];
@@ -40,7 +37,7 @@ export function CameraSetupPanel({
   onApplied: () => void;
 }) {
   const [modules, setModules] = useState<ModuleState>({
-    person_id: false, anpr: false, behavior: false, lowlight: false, fog: false,
+    person_id: false, anpr: false, lowlight: false, fog: false,
   });
   const [referenceSetId, setReferenceSetId] = useState<string | null>(null);
   const [photoCount, setPhotoCount] = useState(0);
@@ -49,6 +46,8 @@ export function CameraSetupPanel({
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [appliedAt, setAppliedAt] = useState<number | null>(null);
+  // How many other cameras the last apply also started the target search on.
+  const [sharedWith, setSharedWith] = useState(0);
 
   // Snapshot is frozen when the panel opens: zone points are normalized, so
   // drawing on a still frame maps correctly onto the moving stream, and a
@@ -85,7 +84,6 @@ export function CameraSetupPanel({
     setModules({
       person_id: camera.modules.includes("person_id"),
       anpr: camera.modules.includes("anpr"),
-      behavior: camera.modules.includes("behavior"),
       lowlight: camera.modules.includes("lowlight"),
       fog: camera.modules.includes("fog"),
     });
@@ -95,7 +93,7 @@ export function CameraSetupPanel({
 
   const blockedReason = useMemo(() => {
     if (modules.person_id && !referenceSetId) return "Upload at least one reference photo for Target Person ID";
-    if (!modules.person_id && !modules.anpr && !modules.behavior && !modules.lowlight && !modules.fog && zones.length === 0) {
+    if (!modules.person_id && !modules.anpr && !modules.lowlight && !modules.fog && zones.length === 0) {
       return "Enable at least one module, or draw a zone";
     }
     return null;
@@ -112,10 +110,33 @@ export function CameraSetupPanel({
         anpr: modules.anpr,
         target_plate: targetPlate.trim() || null,
         zone_ids: zones.map((z) => z.zone_id),
-        behavior: modules.behavior,
+        behavior: false,
         lowlight: modules.lowlight,
         fog: modules.fog,
       });
+      // A wanted person is wanted everywhere: enrolling them on one camera
+      // starts the same search on every other camera too, with each camera's
+      // own settings left as they were. Without this the target is only ever
+      // found on the camera the photos happened to be uploaded on.
+      if (modules.person_id && referenceSetId) {
+        const others = (await liveApi.listCameras()).filter(
+          (c) => c.camera_id !== camera.camera_id
+            && !(c.modules.includes("person_id") && c.reference_set_id === referenceSetId),
+        );
+        await Promise.all(others.map((c) => liveApi.configureAnalysis(c.camera_id, {
+          person_id: true,
+          reference_set_id: referenceSetId,
+          anpr: c.modules.includes("anpr"),
+          target_plate: c.target_plate,
+          zone_ids: c.zone_ids,
+          behavior: c.modules.includes("behavior"),
+          lowlight: c.modules.includes("lowlight"),
+          fog: c.modules.includes("fog"),
+        })));
+        setSharedWith(others.length);
+      } else {
+        setSharedWith(0);
+      }
       setAppliedAt(Date.now());
       onApplied();
     } catch (err) {
@@ -210,14 +231,6 @@ export function CameraSetupPanel({
         />
       </div>
 
-      {modules.behavior && (
-        <div className="flex flex-col gap-2">
-          <div className="text-[12.5px] font-bold uppercase tracking-wide text-text-secondary">
-            Ground calibration <span className="font-normal normal-case text-text-tertiary">(optional, for behaviour in metres)</span>
-          </div>
-          <CalibrationEditor cameraId={camera.camera_id} imageUrl={snapshotUrl(camera.camera_id, snapshotNonce)} />
-        </div>
-      )}
 
       {error && (
         <div className="rounded border border-accent-red/35 bg-accent-red/10 px-3 py-2 text-[12px] text-accent-red">
@@ -238,7 +251,9 @@ export function CameraSetupPanel({
           {blockedReason
             ? blockedReason
             : appliedAt
-              ? "Applied — the camera restarted with these modules."
+              ? sharedWith > 0
+                ? `Applied — and this person is now searched for on ${sharedWith} other camera${sharedWith === 1 ? "" : "s"} too.`
+                : "Applied — the camera restarted with these modules."
               : "Applying restarts this camera's analysis."}
         </span>
       </div>

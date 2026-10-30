@@ -295,8 +295,12 @@ class CombinedPipeline:
                 confirmation_observations=self.person_id_cfg.confirmation_observations,
                 gap_tolerance_frames=self.person_id_cfg.gap_tolerance_frames,
                 event_confirmed="TARGET_CONFIRMED", event_reacquired="TARGET_REACQUIRED", event_lost="TARGET_LOST",
+                reacquire_observations=self.person_id_cfg.reacquire_observations,
             )
             person_gallery = TargetGallery(max_size=self.person_id_cfg.gallery_max_size)
+        # track id -> timestamp until which its clear, non-matching face bars
+        # it from appearance matching (the face veto).
+        face_vetoed_until: dict[int, float] = {}
 
         # --- anpr state ---
         aggregator = None
@@ -469,8 +473,10 @@ class CombinedPipeline:
                         # face recognition: identity CONFIRMATION (periodic, not continuous)
                         if frame.index % self.person_id_cfg.face_sample_stride == 0:
                             for tid, track in person_tracks_by_id.items():
-                                if person_lock.confirmed and tid == person_lock.target_track_id:
-                                    continue
+                                # The locked target's face is checked too: not to
+                                # re-confirm it, but so a lock that went onto the
+                                # wrong person is caught by their face.
+                                is_target = person_lock.confirmed and tid == person_lock.target_track_id
                                 cx1, cy1, cx2, cy2 = _pad_bbox(track.bbox, self.person_id_cfg.crop_pad_frac, w, h)
                                 crop = frame.image[cy1:cy2, cx1:cx2]
                                 if crop.size == 0:
@@ -481,7 +487,17 @@ class CombinedPipeline:
                                 person_face_inference_count += 1
                                 probe = self.face_recognizer.embed(crop, face)
                                 votes, best_sim = reference_set.vote(probe, self.person_id_cfg.similarity_threshold)
-                                if votes < person_min_votes:
+                                # Face veto: a face clear enough to judge that is
+                                # plainly someone else outranks any match on
+                                # clothes and build.
+                                if (face.bbox[2] - face.bbox[0] >= self.person_id_cfg.face_reject_min_width_px
+                                        and best_sim < self.person_id_cfg.face_reject_threshold):
+                                    face_vetoed_until[tid] = frame.timestamp_sec + self.person_id_cfg.face_veto_sec
+                                    if is_target:
+                                        person_lock.release(frame.index, frame.timestamp_sec,
+                                                            "face does not match the target")
+                                    continue
+                                if is_target or votes < person_min_votes:
                                     continue
                                 was_confirmed = person_lock.confirmed
                                 person_lock.register_match(tid, frame.index, frame.timestamp_sec, votes, round(best_sim, 3))
@@ -514,9 +530,12 @@ class CombinedPipeline:
                                     continue
                                 if not good_bbox:
                                     continue
+                                if face_vetoed_until.get(tid, float("-inf")) > frame.timestamp_sec:
+                                    continue  # their face already said no
                                 reid_sim = person_gallery.best_similarity(embedding)
                                 if reid_sim >= self.person_id_cfg.reid_similarity_threshold:
-                                    person_lock.register_match(tid, frame.index, frame.timestamp_sec, votes=1, similarity=round(reid_sim, 3))
+                                    person_lock.register_match(tid, frame.index, frame.timestamp_sec, votes=1,
+                                                               similarity=round(reid_sim, 3), strong=False)
                                     continue
 
                                 # Nothing matched locally. Fall back to how this
@@ -532,7 +551,7 @@ class CombinedPipeline:
                                     was_confirmed = person_lock.confirmed
                                     person_lock.register_match(
                                         tid, frame.index, frame.timestamp_sec,
-                                        votes=1, similarity=round(shared_sim, 3),
+                                        votes=1, similarity=round(shared_sim, 3), strong=False,
                                     )
                                     if not was_confirmed and person_lock.confirmed:
                                         all_events.append({
@@ -717,7 +736,7 @@ class CombinedPipeline:
 
                     if self.tracker_config.adaptive_stride:
                         person_locked = _following(person_lock)
-                        urgent_person = person_locked
+                        urgent_person = person_locked and self.tracker_config.adaptive_person_stride
                         urgent_shared = person_locked or _following(anpr_lock) or (
                             bool(req.zones) and anyone_near_zone(
                                 {tid: footpoint(t.bbox) for tid, t in tracks_by_id.items()},

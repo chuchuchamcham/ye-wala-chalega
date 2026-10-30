@@ -75,18 +75,6 @@ export function Settings() {
             )}
           </Panel>
 
-          <Panel title="Behavior Thresholds (Defaults)">
-            <KeyValueRow label="Loitering Threshold" value="10s" />
-            <KeyValueRow label="Direction-Change Sensitivity" value="70°" />
-            <KeyValueRow label="Speed Anomaly Threshold" value="400 px/s" />
-            {tab === "advanced" && (
-              <>
-                <KeyValueRow label="Repeated Movement Count" value="3 reversals" />
-                <KeyValueRow label="Event Cooldown" value="8s" />
-              </>
-            )}
-          </Panel>
-
           <Panel title="Low-Light Settings">
             <KeyValueRow label="Detection Trigger" value="Mean brightness < 65" />
             <KeyValueRow label="Backend" value="Fast (CLAHE + Gamma)" />

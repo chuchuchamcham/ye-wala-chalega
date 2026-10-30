@@ -7,6 +7,7 @@ import { liveApi, type LiveCamera, type LiveEvent } from "../api/live";
 import { mapApi, type PathPrediction, type SiteMap as SiteMapState } from "../api/map";
 import { eventMeta } from "../lib/eventMeta";
 import { SitePicker } from "../components/dashboard/SitePicker";
+import { IntrusionDemo } from "../components/sitemap/IntrusionDemo";
 import { useSiteChoice } from "../hooks/useSiteChoice";
 
 const REFRESH_MS = 3000;
@@ -43,11 +44,14 @@ function pursuitPath(events: LiveEvent[], now: number): Stop[] {
   return stops;
 }
 
-function markerColour(camera: LiveCamera | undefined, alarm: boolean) {
+// Cameras stay neutral until the watched person or vehicle passes them: red
+// while alarming, amber once they are part of the path, grey otherwise. Only
+// the cameras that actually saw the target stand out.
+function markerColour(camera: LiveCamera | undefined, alarm: boolean, onPath: boolean) {
   if (alarm) return "bg-accent-red shadow-[0_0_0_6px_rgba(239,68,68,0.25)] animate-pulse";
-  if (!camera || camera.state === "offline" || camera.state === "stopped") return "bg-text-disabled";
-  if (camera.state !== "online" || camera.degraded) return "bg-accent-amber";
-  return "bg-accent-green";
+  if (onPath) return "bg-accent-amber";
+  if (!camera || camera.state === "offline" || camera.state === "stopped") return "bg-text-disabled opacity-50";
+  return "bg-text-tertiary";
 }
 
 export function SiteMap({ user }: { user?: SessionUser | null }) {
@@ -356,13 +360,15 @@ export function SiteMap({ user }: { user?: SessionUser | null }) {
                   className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 ${canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
                   style={{ left: `${x * 100}%`, top: `${y * 100}%`, touchAction: "none" }}
                 >
-                  <span className={`h-3.5 w-3.5 rounded-full border-2 border-bg-0 ${markerColour(camera, alarmed.has(name))}`} />
+                  <span className={`h-3.5 w-3.5 rounded-full border-2 border-bg-0 ${markerColour(camera, alarmed.has(name), !!stop)}`} />
                   <span className="whitespace-nowrap rounded bg-bg-0/85 px-1.5 py-[1px] text-[10.5px] font-semibold text-text-primary">
                     {name}{stop ? ` · ${clock(stop.time)}` : ""}
                   </span>
                 </button>
               );
             })}
+
+            <IntrusionDemo />
           </div>
         </div>
 

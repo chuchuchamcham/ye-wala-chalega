@@ -55,6 +55,11 @@ class TargetLock:
     event_confirmed: str = "TARGET_CONFIRMED"
     event_reacquired: str = "TARGET_REACQUIRED"
     event_lost: str = "TARGET_LOST"
+    # Weak matches (appearance alone) needed on the same track to re-acquire
+    # a lost target. A strong match (a face, a plate) still re-acquires on
+    # its own. 1 keeps the old one-match behaviour for callers that only
+    # ever register strong matches.
+    reacquire_observations: int = 1
 
     confirmed: bool = False
     target_track_id: int | None = None
@@ -65,6 +70,7 @@ class TargetLock:
     ended: bool = False
 
     match_counts: dict[int, int] = field(default_factory=lambda: defaultdict(int))
+    reacquire_counts: dict[int, int] = field(default_factory=lambda: defaultdict(int))
     events: list[LockEvent] = field(default_factory=list)
 
     @property
@@ -92,7 +98,7 @@ class TargetLock:
 
     def register_match(
         self, track_id: int, frame_index: int, timestamp_sec: float,
-        votes: int, similarity: float,
+        votes: int, similarity: float, strong: bool = True,
     ) -> None:
         """Record a matching observation for track_id this frame.
 
@@ -117,9 +123,16 @@ class TargetLock:
                     {"votes": votes, "similarity": similarity},
                 ))
         elif self.target_track_id is None:
-            # Confirmed identity, but currently untracked (occlusion) -
-            # a strong single-observation match is enough to re-acquire,
-            # since it already passed the same threshold/voting bar.
+            # Confirmed identity, but currently untracked. A strong match (it
+            # passed the full voting bar) re-acquires on its own. A weak one -
+            # body appearance, where ~1 in 40 strangers clears the threshold
+            # on a given look - must repeat on the same track first: re-
+            # acquiring on a single look put the target box on bystanders.
+            if not strong:
+                self.reacquire_counts[track_id] += 1
+                if self.reacquire_counts[track_id] < self.reacquire_observations:
+                    return
+            self.reacquire_counts.clear()
             self.target_track_id = track_id
             self.frames_since_seen = 0
             self.events.append(LockEvent(
@@ -146,7 +159,20 @@ class TargetLock:
                 self.event_lost, self.target_track_id, frame_index, timestamp_sec,
             ))
             self.target_track_id = None
+            self.reacquire_counts.clear()
         return None
+
+    def release(self, frame_index: int, timestamp_sec: float, reason: str) -> None:
+        """Drop the lock from the track it is on - used when stronger evidence
+        (a clear face that is not the target) shows it is on the wrong
+        person. The identity stays confirmed and can be re-acquired."""
+        if not self.confirmed or self.target_track_id is None:
+            return
+        self.events.append(LockEvent(
+            self.event_lost, self.target_track_id, frame_index, timestamp_sec, {"reason": reason},
+        ))
+        self.target_track_id = None
+        self.reacquire_counts.clear()
 
     @property
     def visible_duration_sec(self) -> float:

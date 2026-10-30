@@ -3,7 +3,6 @@ import { Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
 import { authApi, type SessionState } from "./api/auth";
 import { Analysis } from "./pages/Analysis";
-import { Analyst } from "./pages/Analyst";
 import { AnprSearch } from "./pages/AnprSearch";
 import { AuditLog } from "./pages/AuditLog";
 import { Dashboard } from "./pages/Dashboard";
@@ -57,7 +56,6 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/live" element={<LiveMonitor />} />
-        <Route path="/analyst" element={<Analyst user={session.user} />} />
         <Route path="/map" element={<SiteMap user={session.user} />} />
         <Route path="/sensors" element={<Sensors user={session.user} />} />
         <Route path="/devices" element={<Devices />} />

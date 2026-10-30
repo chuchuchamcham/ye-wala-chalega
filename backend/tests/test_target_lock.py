@@ -97,3 +97,53 @@ def test_locked_target_is_never_replaced_by_a_different_person():
 
     visible = lock.step_visibility({7, 99}, 3, 0.1)
     assert visible == 7
+
+
+# --- stricter re-acquisition and release (wrong-person fix) -----------------
+
+def _lost_lock(reacquire_observations: int = 3) -> TargetLock:
+    lock = TargetLock(confirmation_observations=1, gap_tolerance_frames=1,
+                      reacquire_observations=reacquire_observations)
+    lock.register_match(1, 0, 0.0, votes=2, similarity=0.9)
+    for f in (1, 2, 3):
+        lock.step_visibility(set(), f, f / 10)
+    assert lock.confirmed and lock.target_track_id is None
+    return lock
+
+
+def test_appearance_alone_needs_several_matches_to_reacquire():
+    lock = _lost_lock()
+    lock.register_match(7, 4, 0.4, votes=1, similarity=0.7, strong=False)
+    lock.register_match(7, 5, 0.5, votes=1, similarity=0.7, strong=False)
+    assert lock.target_track_id is None  # two looks are not enough
+    lock.register_match(7, 6, 0.6, votes=1, similarity=0.7, strong=False)
+    assert lock.target_track_id == 7
+
+
+def test_appearance_matches_on_different_people_do_not_add_up():
+    lock = _lost_lock()
+    for tid in (7, 8, 9):
+        lock.register_match(tid, 4, 0.4, votes=1, similarity=0.7, strong=False)
+    assert lock.target_track_id is None
+
+
+def test_a_face_match_still_reacquires_at_once():
+    lock = _lost_lock()
+    lock.register_match(7, 4, 0.4, votes=2, similarity=0.6)
+    assert lock.target_track_id == 7
+
+
+def test_release_drops_a_wrong_lock_and_can_reacquire():
+    lock = _lost_lock()
+    lock.register_match(7, 4, 0.4, votes=2, similarity=0.6)
+    lock.release(5, 0.5, "face does not match the target")
+    assert lock.target_track_id is None and lock.confirmed
+    assert lock.events[-1].type == "TARGET_LOST" and lock.events[-1].data["reason"].startswith("face")
+    lock.register_match(3, 6, 0.6, votes=2, similarity=0.6)
+    assert lock.target_track_id == 3
+
+
+def test_default_keeps_single_match_reacquisition_for_other_modules():
+    lock = _lost_lock(reacquire_observations=1)
+    lock.register_match(7, 4, 0.4, votes=1, similarity=0.7, strong=False)
+    assert lock.target_track_id == 7

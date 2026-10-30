@@ -1,5 +1,5 @@
 import {
-  Activity, Bot, Car, ChevronsLeft, ChevronsRight, CloudFog, Eye, LayoutDashboard, ListChecks, Map as MapIcon, Radio, RadioTower, Satellite, Scan, ScanSearch, ScrollText,
+  Activity, Car, ChevronsLeft, ChevronsRight, CloudFog, Eye, LayoutDashboard, ListChecks, Map as MapIcon, Radio, RadioTower, Satellite, Scan, ScanSearch, ScrollText,
   Search, Server, Settings, ShieldAlert, Siren, Smartphone, Users,
 } from "lucide-react";
 import { useState, type MouseEvent } from "react";
@@ -17,7 +17,6 @@ const primaryLinks = [
   { to: "/map", label: "Site Map", icon: MapIcon },
   { to: "/sensors", label: "Sensors", icon: RadioTower },
   { to: "/satellite", label: "Satellite Check", icon: Satellite },
-  { to: "/analyst", label: "AI Analyst", icon: Bot },
   { to: "/devices", label: "Connect Device", icon: Smartphone },
   { to: "/analysis", label: "Forensic Analysis", icon: Scan },
   { to: "/jobs", label: "Jobs", icon: ListChecks },
@@ -40,7 +39,6 @@ const moduleLinks = [
   { to: "/analysis?open=vehicle_detection", label: "Vehicle Detection", icon: Car },
   { to: "/analysis?open=anpr", label: "ANPR / Plate OCR", icon: Search },
   { to: "/analysis?open=zone", label: "Zone Intrusion", icon: ShieldAlert },
-  { to: "/analysis?open=behavior", label: "Behavioral Analytics", icon: Activity },
   { to: "/analysis?open=fog", label: "Fog Removal", icon: CloudFog },
 ];
 

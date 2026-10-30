@@ -18,7 +18,6 @@ function deriveComponents(status: SystemStatus): { label: string; state: Health;
     { label: "ANPR / OCR Engine", state: status.ocr_available ? "READY" : "WARNING", detail: status.ocr_available ? undefined : String(status.ocr_status?.reason ?? "OCR engine unavailable") },
     { label: "Tracking Engine (ByteTrack)", state: models.yolo ? "READY" : "ERROR" },
     { label: "Zone Engine", state: "READY" },
-    { label: "Behavior Engine", state: "READY" },
     { label: "Low-Light Enhancement", state: "READY" },
     { label: "Video Encoder", state: "READY" },
   ];

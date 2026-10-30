@@ -418,9 +418,9 @@ export function LiveMonitor() {
               </div>
               <div className="grid grid-cols-4 gap-2 text-center max-[700px]:grid-cols-2">
                 {[
-                  { label: "Analysis rate", value: `${selected.measured_fps.toFixed(1)} fps` },
-                  { label: "Frames analysed", value: selected.frames_read.toLocaleString() },
-                  { label: "Dropped (real-time)", value: selected.frames_dropped.toLocaleString() },
+                  { label: "Video rate", value: `${selected.measured_fps.toFixed(1)} fps` },
+                  { label: "Analysis rate", value: selected.analysis_fps != null ? `${selected.analysis_fps.toFixed(1)} fps` : "off" },
+                  { label: "Frames read", value: selected.frames_read.toLocaleString() },
                   { label: "Reconnects", value: String(selected.reconnect_count) },
                 ].map((stat) => (
                   <div key={stat.label} className="rounded border border-border-1 bg-bg-1 px-2 py-2">

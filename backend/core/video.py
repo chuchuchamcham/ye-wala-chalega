@@ -377,9 +377,17 @@ class LiveStreamReader:
                 cap = cv2.VideoCapture(index, cv2.CAP_ANY)
             # Webcams open at 640x480 unless asked; faces at a few metres need
             # more pixels than that. A camera without HD keeps its own size.
+            # Then ask for 30fps MJPG: uncompressed 720p is all a USB 2.0
+            # webcam can push at a crawl (Logitech Brio 100: 5fps raw, 30fps
+            # MJPG; measured, two webcams together went 5+10 -> 30+25fps).
+            # The order matters - with DirectShow the format request only
+            # sticks when it comes after the size and the frame rate. A
+            # camera without MJPG ignores it and keeps its raw format.
             if cap.isOpened():
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                cap.set(cv2.CAP_PROP_FPS, 30)
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         else:
             cap = cv2.VideoCapture(self.source)
         if not cap.isOpened():

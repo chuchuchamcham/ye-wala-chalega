@@ -1,10 +1,9 @@
-import { AlertTriangle, CloudFog, Eye, Info, Search, ShieldAlert, Sparkles } from "lucide-react";
+import { AlertTriangle, CloudFog, Eye, Info, Search, ShieldAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { startCombinedJob } from "../api/jobs";
 import type { CombinedJobRequest, VideoUpload, Zone } from "../api/types";
-import { BehaviorConfigPanel, DEFAULT_BEHAVIOR_CONFIG, type BehaviorConfigValues } from "../components/analysis/BehaviorConfigPanel";
 import { ModuleCard } from "../components/analysis/ModuleCard";
 import { ReferencePhotoUpload } from "../components/analysis/ReferencePhotoUpload";
 import { StepIndicator } from "../components/analysis/StepIndicator";
@@ -17,7 +16,6 @@ interface ModuleFlags {
   person_id: boolean;
   anpr: boolean;
   zone: boolean;
-  behavior: boolean;
   fog: boolean;
 }
 
@@ -25,7 +23,6 @@ const OPEN_PARAM_MAP: Record<string, keyof ModuleFlags | null> = {
   person_id: "person_id",
   anpr: "anpr",
   zone: "zone",
-  behavior: "behavior",
   fog: "fog",
   human_detection: null,
   vehicle_detection: null,
@@ -38,14 +35,13 @@ export function Analysis() {
   const [step, setStep] = useState(1);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [video, setVideo] = useState<VideoUpload | null>(null);
-  const [modules, setModules] = useState<ModuleFlags>({ person_id: false, anpr: false, zone: false, behavior: false, fog: false });
+  const [modules, setModules] = useState<ModuleFlags>({ person_id: false, anpr: false, zone: false, fog: false });
   const [deepLinkNote, setDeepLinkNote] = useState<string | null>(null);
 
   const [referenceSetId, setReferenceSetId] = useState<string | null>(null);
   const [referenceCount, setReferenceCount] = useState(0);
   const [targetPlate, setTargetPlate] = useState("");
   const [zones, setZones] = useState<Zone[]>([]);
-  const [behaviorConfig, setBehaviorConfig] = useState<BehaviorConfigValues>(DEFAULT_BEHAVIOR_CONFIG);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -65,7 +61,7 @@ export function Analysis() {
       setModules((m) => ({ ...m, [key]: true }));
     } else if (open === "human_detection" || open === "vehicle_detection") {
       setDeepLinkNote(
-        `${open === "human_detection" ? "Human" : "Vehicle"} detection isn't a standalone module - it's the shared detector every module below already uses. Select Zone Intrusion or Behavioral Analytics to track people/vehicles directly, or Target Person ID / ANPR to identify specific ones.`,
+        `${open === "human_detection" ? "Human" : "Vehicle"} detection isn't a standalone module - it's the shared detector every module below already uses. Select Zone Intrusion to track people/vehicles directly, or Target Person ID / ANPR to identify specific ones.`,
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,20 +92,6 @@ export function Analysis() {
       if (modules.person_id && referenceSetId) req.person_id = { reference_set_id: referenceSetId };
       if (modules.anpr) req.anpr = { target_plate: targetPlate.trim() || null };
       if (modules.zone) req.zone_ids = zones.map((z) => z.zone_id);
-      if (modules.behavior) {
-        req.behavior = {
-          config: {
-            loitering_seconds: behaviorConfig.loitering_seconds,
-            direction_change_degrees: behaviorConfig.direction_change_degrees,
-            speed_threshold_px_per_sec: behaviorConfig.speed_threshold_px_per_sec,
-            reversal_count: behaviorConfig.reversal_count,
-            loitering_radius_px: behaviorConfig.loitering_radius_px,
-            reversal_angle_degrees: behaviorConfig.reversal_angle_degrees,
-            acceleration_threshold_px_per_sec: behaviorConfig.acceleration_threshold_px_per_sec,
-            behavior_cooldown_seconds: behaviorConfig.behavior_cooldown_seconds,
-          },
-        };
-      }
       if (modules.fog) req.fog = {};
 
       const job = await startCombinedJob(req);
@@ -166,7 +148,6 @@ export function Analysis() {
               <ModuleCard icon={Eye} title="Target Person ID" description="Identify and continuously track a specific person." selected={modules.person_id} onToggle={() => toggleModule("person_id")} />
               <ModuleCard icon={Search} title="ANPR / Plate Search" description="Detect, read and search vehicle registration plates." selected={modules.anpr} onToggle={() => toggleModule("anpr")} />
               <ModuleCard icon={ShieldAlert} title="Zone Intrusion" description="Detect entry, exit and dwell inside restricted areas." selected={modules.zone} onToggle={() => toggleModule("zone")} />
-              <ModuleCard icon={Sparkles} title="Behavioral Analytics" description="Detect loitering, abnormal movement and direction changes." selected={modules.behavior} onToggle={() => toggleModule("behavior")} />
               <ModuleCard icon={CloudFog} title="Fog Removal" description="Clear haze from foggy footage before detection." selected={modules.fog} onToggle={() => toggleModule("fog")} />
             </div>
           </Panel>
@@ -217,12 +198,6 @@ export function Analysis() {
               </Panel>
             )}
 
-            {modules.behavior && (
-              <Panel title="Behavioral Analytics Configuration">
-                <BehaviorConfigPanel value={behaviorConfig} onChange={setBehaviorConfig} />
-              </Panel>
-            )}
-
             {modules.fog && (
               <Panel title="Fog Removal">
                 <div className="flex items-center justify-between rounded-md border border-border-1 bg-bg-3 px-4 py-3">
@@ -248,7 +223,6 @@ export function Analysis() {
               {modules.person_id && <ReviewChip label="Target Person ID" />}
               {modules.anpr && <ReviewChip label={targetPlate ? `ANPR — Search "${targetPlate.toUpperCase()}"` : "ANPR (general)"} />}
               {modules.zone && <ReviewChip label={`Zone Intrusion (${zones.length} zone${zones.length === 1 ? "" : "s"})`} />}
-              {modules.behavior && <ReviewChip label="Behavioral Analytics" />}
               {modules.fog && <ReviewChip label="Fog Removal" />}
               {selectedCount === 0 && <span className="text-[12.5px] text-text-tertiary">No modules selected</span>}
             </div>

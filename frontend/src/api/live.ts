@@ -29,6 +29,8 @@ export interface LiveCamera {
   target_plate: string | null;
   zone_ids: string[];
   analysis_error: string | null;
+  /** Frames per second the analysis gets through; null when no module is on. */
+  analysis_fps?: number | null;
   event_count: number;
 }
 

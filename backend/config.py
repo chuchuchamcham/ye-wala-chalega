@@ -146,6 +146,12 @@ class TrackerConfig:
     # within near_zone_frac of the frame diagonal of its edge.
     adaptive_stride: bool = True
     near_zone_frac: float = 0.15
+    # Whether a locked target also makes the person tracker (YOLO + BoT-SORT
+    # with an OSNet embedding per person) detect every frame. Live turns it
+    # off: it already runs face and ReID on every analysed frame, and with
+    # two webcams on Person ID the every-frame person detection pushed the
+    # server to ~76% of a 12-thread CPU and starved one feed to ~3 fps.
+    adaptive_person_stride: bool = True
 
 
 @dataclass
@@ -205,6 +211,22 @@ class PersonIDConfig:
     # border is far more costly than missing a handover, so this errs
     # towards missing one.
     cross_camera_similarity_threshold: float = 0.78
+    # Appearance-only matches (local ReID or cross-camera) needed on the same
+    # track to re-acquire a lost target. At reid_similarity_threshold about
+    # 1 in 40 different-person comparisons still match (2.7%, measured), and
+    # with every person compared several times a second a single match was
+    # enough to put the target box on a bystander. A face match still
+    # re-acquires immediately.
+    reacquire_observations: int = 3
+    # Face veto. A face this wide or wider is clear enough to trust a "no":
+    # if its best similarity to the reference photos is below
+    # face_reject_threshold it is not the target, whatever their clothes look
+    # like. SFace on this project's CCTV clips: same person ~0.47 on average,
+    # different people ~0.10, so 0.25 is a clear "different person".
+    face_reject_threshold: float = 0.25
+    face_reject_min_width_px: int = 40
+    # How long a vetoed track is barred from appearance matching.
+    face_veto_sec: float = 10.0
     # Bounded gallery size -- old embeddings age out rather than growing
     # forever, and a bounded gallery can't be dominated by one bad stretch.
     gallery_max_size: int = 30
