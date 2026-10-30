@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 
 class FaceRecognizer:
+    backend = "sface"
+    # None: the caller's PersonIDConfig thresholds apply (they were tuned for SFace).
+    match_threshold: float | None = None
+    reject_threshold: float | None = None
+
     def __init__(self, model_path: str | Path):
         self.model_path = Path(model_path)
         if not self.model_path.exists():
@@ -33,6 +38,59 @@ class FaceRecognizer:
 
     def similarity(self, feat_a: np.ndarray, feat_b: np.ndarray) -> float:
         return float(self._recognizer.match(feat_a, feat_b, cv2.FaceRecognizerSF_FR_COSINE))
+
+
+class ArcFaceRecognizer:
+    """InsightFace ArcFace (ResNet-50, trained on WebFace600K) - the stronger
+    recognizer, used whenever its model has been downloaded
+    (scripts/download_face_model.py).
+
+    Measured on real webcam frames against SFace (same YuNet detections): a
+    person matched themself in 13/14 frames at a 60 px face against SFace's
+    7/14, while the closest different face - a poster portrait behind them -
+    scored 0.09 against SFace's 0.28. Its scores sit on a different scale, so
+    it carries its own thresholds.
+    """
+
+    backend = "arcface"
+    match_threshold = 0.30
+    # Only a face this far from the target vetoes them; a laughing or turned
+    # face of the right person measured as low as 0.02.
+    reject_threshold = -0.05
+    _TEMPLATE = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+                          [41.5493, 92.3655], [70.7299, 92.2041]], np.float32)
+
+    def __init__(self, model_path: str | Path):
+        import onnxruntime as ort
+
+        self.model_path = Path(model_path)
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"ArcFace model not found: {self.model_path}")
+        self._session = ort.InferenceSession(str(self.model_path), providers=["CPUExecutionProvider"])
+        self._input = self._session.get_inputs()[0].name
+
+    def embed(self, image: np.ndarray, face: FaceDetection) -> np.ndarray:
+        # YuNet's five landmarks come in the same order as ArcFace's template
+        # (eyes, nose, mouth corners, image-left first).
+        points = face.raw[4:14].reshape(5, 2).astype(np.float32)
+        matrix, _ = cv2.estimateAffinePartial2D(points, self._TEMPLATE, method=cv2.LMEDS)
+        aligned = cv2.warpAffine(image, matrix, (112, 112), borderValue=0)
+        blob = (cv2.cvtColor(aligned, cv2.COLOR_BGR2RGB).astype(np.float32) - 127.5) / 127.5
+        vector = self._session.run(None, {self._input: blob.transpose(2, 0, 1)[None]})[0][0]
+        return vector / (np.linalg.norm(vector) + 1e-9)
+
+    def similarity(self, feat_a: np.ndarray, feat_b: np.ndarray) -> float:
+        return float(np.dot(feat_a.ravel(), feat_b.ravel()))
+
+
+def best_face_recognizer(sface_path: str | Path, arcface_path: str | Path):
+    """ArcFace when its model is present and loads, SFace otherwise."""
+    if Path(arcface_path).exists():
+        try:
+            return ArcFaceRecognizer(arcface_path)
+        except Exception:
+            logger.exception("ArcFace failed to load; using SFace")
+    return FaceRecognizer(sface_path)
 
 
 _ROTATIONS = (None, cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE)

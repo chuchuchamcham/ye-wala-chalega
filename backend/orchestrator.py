@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import math
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -35,7 +35,7 @@ import cv2
 
 from backend.config import (
     AnprConfig, BehaviorConfig, LowLightConfig, OSNET_MODEL_PATH, PersonIDConfig, TrackerConfig,
-    YUNET_MODEL_PATH, SFACE_MODEL_PATH, ZoneConfig,
+    YUNET_MODEL_PATH, SFACE_MODEL_PATH, ARCFACE_MODEL_PATH, ZoneConfig,
 )
 from backend.core.lowlight import process_frame as lowlight_process_frame
 from backend.core.output import (
@@ -55,7 +55,7 @@ from backend.modules.person_id.custom_tracker import PersonBotSortTracker
 from backend.modules.person_id.detector import FaceDetector
 from backend.modules.person_id.person_reid import PersonReID
 from backend.modules.person_id.pipeline import _bbox_min_side, _prediction_still_looks_like_target
-from backend.modules.person_id.recognizer import FaceRecognizer, ReferenceSet
+from backend.modules.person_id.recognizer import ReferenceSet, best_face_recognizer, upright_face
 from backend.modules.person_id.target_gallery import TargetGallery
 from backend.modules.zone.geometry import Zone, centroid, denormalize_polygon, footpoint
 from backend.modules.zone.state import INSIDE, ZoneMonitor, anyone_near_zone
@@ -204,7 +204,14 @@ class CombinedPipeline:
         self.face_detector = self.face_recognizer = self.person_reid = None
         if request.enable_person_id:
             self.face_detector = FaceDetector(YUNET_MODEL_PATH)
-            self.face_recognizer = FaceRecognizer(SFACE_MODEL_PATH)
+            self.face_recognizer = best_face_recognizer(SFACE_MODEL_PATH, ARCFACE_MODEL_PATH)
+            if self.face_recognizer.match_threshold is not None:
+                # The config's thresholds are on SFace's scale.
+                self.person_id_cfg = replace(
+                    self.person_id_cfg,
+                    similarity_threshold=self.face_recognizer.match_threshold,
+                    face_reject_threshold=self.face_recognizer.reject_threshold,
+                )
             self.person_reid = PersonReID(OSNET_MODEL_PATH)
 
         self.plate_detector = self.ocr = None
@@ -481,16 +488,16 @@ class CombinedPipeline:
                                 crop = frame.image[cy1:cy2, cx1:cx2]
                                 if crop.size == 0:
                                     continue
-                                face = self.face_detector.best(crop)
+                                face_crop, face = _find_face(self.face_detector, crop)
                                 if face is None:
                                     continue
                                 person_face_inference_count += 1
-                                probe = self.face_recognizer.embed(crop, face)
+                                probe = self.face_recognizer.embed(face_crop, face)
                                 votes, best_sim = reference_set.vote(probe, self.person_id_cfg.similarity_threshold)
                                 # Face veto: a face clear enough to judge that is
                                 # plainly someone else outranks any match on
                                 # clothes and build.
-                                if (face.bbox[2] - face.bbox[0] >= self.person_id_cfg.face_reject_min_width_px
+                                if (face.width_px >= self.person_id_cfg.face_reject_min_width_px
                                         and best_sim < self.person_id_cfg.face_reject_threshold):
                                     face_vetoed_until[tid] = frame.timestamp_sec + self.person_id_cfg.face_veto_sec
                                     if is_target:
@@ -952,3 +959,26 @@ class CombinedPipeline:
             person_id=person_id_summary, anpr=anpr_summary, zones=zones_summary, behavior=behavior_summary, lowlight=lowlight_summary,
             evidence_dir=evidence_dir,
         )
+
+
+# A person crop shorter than this is enlarged before looking for a face: a
+# distant person's face is only a few dozen pixels and the detector misses it.
+_FACE_UPSCALE_BELOW_PX = 240
+
+
+def _find_face(detector, crop):
+    """The face in a person crop, from a camera mounted at any angle.
+
+    Small crops are enlarged first, and the crop is turned until the face is
+    upright (a sideways camera shows sideways faces, which the detector does
+    not find). Returns (image the face was found in, face); face.width_px is
+    the face's width in the original crop's pixels.
+    """
+    scale = 1.0
+    if crop.shape[0] < _FACE_UPSCALE_BELOW_PX:
+        scale = min(3.0, _FACE_UPSCALE_BELOW_PX / max(1, crop.shape[0]))
+        crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    image, face = upright_face(crop, detector)
+    if face is not None:
+        face.width_px = (face.bbox[2] - face.bbox[0]) / scale
+    return image, face

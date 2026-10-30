@@ -13,6 +13,13 @@ class FaceDetection:
     bbox: tuple[int, int, int, int]  # x1, y1, x2, y2 in the coordinate space of the image passed in
     confidence: float
     raw: np.ndarray  # full YuNet row (bbox + 5 landmarks + score), needed by SFace alignCrop
+    # Width in the caller's original pixels, when the image was enlarged
+    # before detection (see orchestrator._find_face); else the bbox width.
+    width_px: float = 0.0
+
+    def __post_init__(self):
+        if not self.width_px:
+            self.width_px = float(self.bbox[2] - self.bbox[0])
 
 
 class FaceDetector:

@@ -26,6 +26,8 @@ for _d in (MODELS_DIR, UPLOADS_DIR, OUTPUTS_DIR, REFERENCES_DIR, ZONES_DIR, JOBS
 
 YUNET_MODEL_PATH = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
 SFACE_MODEL_PATH = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
+# Optional, stronger recognizer (174 MB, not in git): scripts/download_face_model.py
+ARCFACE_MODEL_PATH = MODELS_DIR / "arcface_w600k_r50.onnx"
 OPENH264_DLL_PATH = MODELS_DIR / "openh264-1.8.0-win64.dll"
 # Identity models: bigger replacements were measured and rejected (Oct
 # 2026, smoke_person_id clips, pairs labelled by track id: same track >=10-15
