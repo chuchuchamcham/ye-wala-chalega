@@ -116,7 +116,11 @@ def google_login(req: GoogleLoginRequest, response: Response) -> dict:
     except ImportError:
         raise HTTPException(503, "google-auth is not installed on the server")
     try:
-        info = id_token.verify_oauth2_token(req.credential, g_requests.Request(), client_id)
+        # A PC clock a second or two behind Google's rejects fresh tokens as
+        # "used too early" - tolerate small drift.
+        info = id_token.verify_oauth2_token(
+            req.credential, g_requests.Request(), client_id, clock_skew_in_seconds=60,
+        )
     except ValueError as exc:
         logger.warning("rejected Google token: %s", exc)
         raise HTTPException(401, "invalid Google sign-in")
