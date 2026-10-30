@@ -172,6 +172,9 @@ def downscale_for_analysis(image: np.ndarray, max_width: int | None) -> np.ndarr
     )
 
 
+# Webcam index -> the capture backend that opened it, when DirectShow did not.
+_WEBCAM_BACKEND: dict[int, int] = {}
+
 ONLINE = "online"
 CONNECTING = "connecting"
 RECONNECTING = "reconnecting"
@@ -369,10 +372,19 @@ class LiveStreamReader:
             # back to it when DirectShow cannot open the index.
             index = int(self.source.strip())
             if os.name == "nt":
-                cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-                if not cap.isOpened():
-                    cap.release()
+                # A webcam DirectShow choked on once goes straight to Media
+                # Foundation afterwards: on a USB webcam opened next to the
+                # built-in one, DirectShow was measured hanging 11s before
+                # failing - and every restart or settings change reopens.
+                if _WEBCAM_BACKEND.get(index) == cv2.CAP_MSMF:
                     cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
+                else:
+                    cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+                    if not cap.isOpened():
+                        cap.release()
+                        cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
+                        if cap.isOpened():
+                            _WEBCAM_BACKEND[index] = cv2.CAP_MSMF
             else:
                 cap = cv2.VideoCapture(index, cv2.CAP_ANY)
             # Webcams open at 640x480 unless asked; faces at a few metres need
