@@ -10,6 +10,7 @@ export interface LiveCamera {
   loop: boolean;
   rotate?: number;
   target_fps: number;
+  max_width: number;
   location: string | null;
   state: CameraState;
   frames_read: number;
@@ -100,6 +101,8 @@ export const liveApi = {
   getCamera: (id: string) => api.get<LiveCamera>(`/api/live/cameras/${id}`),
   start: (id: string) => api.post<LiveCamera>(`/api/live/cameras/${id}/start`),
   stop: (id: string) => api.post<LiveCamera>(`/api/live/cameras/${id}/stop`),
+  setQuality: (id: string, mode: "accuracy" | "balanced" | "speed") =>
+    api.post<LiveCamera>(`/api/live/cameras/${id}/quality`, { mode }),
   rotate: (id: string, degrees: number) => api.post<LiveCamera>(`/api/live/cameras/${id}/rotate`, { degrees }),
   configureAnalysis: (id: string, config: AnalysisConfig) =>
     api.put<LiveCamera>(`/api/live/cameras/${id}/analysis`, config),
@@ -121,7 +124,20 @@ export const liveApi = {
   onvifProfiles: (login: OnvifLogin) => api.post<OnvifProfile[]>("/api/live/onvif/profiles", login),
   onvifAdd: (req: OnvifLogin & { profile_token: string; name: string; location: string | null }) =>
     api.post<LiveCamera>("/api/live/onvif/add", req),
+  webcamScan: () => api.get<{ webcams: Webcam[] }>("/api/live/webcams"),
 };
+
+export interface Webcam {
+  index: number;
+  width: number;
+  height: number;
+  /** data: URL of one frame, so the operator can see which camera this is. */
+  snapshot: string | null;
+  /** Name of the camera already using this webcam, if any. */
+  in_use_by: string | null;
+  /** Opens only through Media Foundation: a phone-webcam app such as DroidCam, not a USB webcam. */
+  virtual: boolean;
+}
 
 export interface OnvifCamera {
   address: string;

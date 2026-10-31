@@ -96,6 +96,9 @@ def best_face_recognizer(sface_path: str | Path, arcface_path: str | Path):
 _ROTATIONS = (None, cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
 
+REFERENCE_MAX_SIDE = 1280
+
+
 def upright_face(image: np.ndarray, detector: FaceDetector) -> tuple[np.ndarray, FaceDetection | None]:
     """Finds the face in a reference photo, turning the photo if needed.
 
@@ -148,6 +151,12 @@ class ReferenceSet:
             if image is None:
                 self.rejected.append((path, "unreadable image file"))
                 continue
+            # A full-resolution phone photo (4032x3024) found a face but
+            # matched no one in the video, while the same photo at 600px
+            # matched at once. Bring it to the scale video faces are seen at.
+            scale = REFERENCE_MAX_SIDE / max(image.shape[:2])
+            if scale < 1:
+                image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
             image, face = upright_face(image, detector)
             if face is None:
                 self.rejected.append((path, "no face detected"))

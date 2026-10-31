@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { googleLogout } from "@react-oauth/google";
 import { authApi, type SessionUser } from "../../api/auth";
 import { useLiveEvents } from "../../hooks/useLiveEvents";
-import { playSiren, unlockAudioOnFirstGesture } from "../../lib/siren";
+import { playAlarmSound, unlockAudioOnFirstGesture } from "../../lib/siren";
 import { Sidebar } from "./Sidebar";
 
 // Alarms older than this are replayed backlog from a reconnect, not news.
@@ -25,7 +25,7 @@ function GlobalSiren() {
     if (sounded.current === key) return;
     sounded.current = key;
     if (Date.now() / 1000 - latestAlarm.wall_time > FRESH_ALARM_SEC) return;
-    void playSiren();
+    void playAlarmSound(latestAlarm.type);
   }, [latestAlarm, pathname]);
 
   return null;

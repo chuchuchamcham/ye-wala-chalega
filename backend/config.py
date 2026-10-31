@@ -301,7 +301,7 @@ class AnprConfig:
     # length difference tolerated when comparing an OCR read against the
     # user's requested plate. Deliberately conservative - see
     # modules.anpr.ocr.plates_match for why.
-    search_match_threshold: float = 0.85
+    search_match_threshold: float = 0.80  # 2 misreads on a 10-char plate (HR01AJ8585 read as H01AJ858)
     search_match_max_len_diff: int = 2
     # A single matching OCR read isn't enough to lock the red target box onto
     # a vehicle - require this many independently-matching frame observations

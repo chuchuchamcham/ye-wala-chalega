@@ -13,7 +13,7 @@ import { TalkDownControls } from "../components/live/TalkDownControls";
 import { eventMeta } from "../lib/eventMeta";
 import { liveApi, streamUrl, type LiveCamera, type LiveEvent } from "../api/live";
 import { useLiveEvents } from "../hooks/useLiveEvents";
-import { playSiren, vibrateAlert } from "../lib/siren";
+import { playAlarmSound, playSiren, vibrateAlert } from "../lib/siren";
 
 const STATUS_POLL_MS = 2000;
 
@@ -176,7 +176,7 @@ export function LiveMonitor() {
     if (soundedAlarmRef.current === key) return;
     soundedAlarmRef.current = key;
     vibrateAlert();
-    void playSiren().then((played) => setAudioBlocked(!played));
+    void playAlarmSound(latestAlarm.type).then((played) => setAudioBlocked(!played));
   }, [latestAlarm]);
 
   const healthSummary = useMemo(() => {
@@ -360,6 +360,22 @@ export function LiveMonitor() {
                   >
                     <RotateCw size={12} /> Rotate{selected.rotate ? ` ${selected.rotate}°` : ""}
                   </button>
+                )}
+                {selected.source_kind !== "file" && (
+                  <select
+                    value={selected.max_width >= 1280 ? "accuracy" : selected.max_width <= 640 ? "speed" : "balanced"}
+                    onChange={async (e) => {
+                      await liveApi.setQuality(selected.camera_id, e.target.value as "accuracy" | "balanced" | "speed");
+                      await refresh();
+                      setStreamNonce(Date.now());
+                    }}
+                    title="Accuracy: sharper, for plates and far faces. Speed: smoother, for a busy CPU."
+                    className="rounded border border-border-2 bg-bg-3 px-2 py-1.5 text-[12px] text-text-secondary"
+                  >
+                    <option value="accuracy">Accuracy</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="speed">Speed</option>
+                  </select>
                 )}
                 <button
                   onClick={() => setStreamNonce(Date.now())}

@@ -62,8 +62,8 @@ def test_pushed_frames_follow_the_session_when_it_swaps_readers(phone_camera):
             "the first reader never received the pushed frame"
 
         original = session.reader
-        session.configure_analysis(AnalysisSpec())
-        assert session.reader is not original, "this test is meaningless unless the reader was replaced"
+        session.configure_analysis(AnalysisSpec())  # restarts in the background
+        assert _wait_until(lambda: session.reader is not original),             "this test is meaningless unless the reader was replaced"
 
         # The phone knows nothing about the reconfigure and keeps sending.
         for _ in range(10):

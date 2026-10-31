@@ -28,7 +28,7 @@ import numpy as np
 from backend.config import (
     AnprConfig, BehaviorConfig, EVENT_DB_PATH, EVIDENCE_DIR, PersonIDConfig, TrackerConfig,
 )
-from backend.core.events import ALARM_SEVERITIES, describe_event, severity_for
+from backend.core.events import ALARM_SEVERITIES, SILENT_TYPES, describe_event, severity_for
 from backend.core.video import (
     DEFAULT_MAX_ANALYSIS_WIDTH, LiveStreamReader, OFFLINE, ONLINE, PUSH_SCHEME,
     PushStreamReader, RECONNECTING, STOPPED, VideoOpenError,
@@ -43,6 +43,7 @@ from backend.live.target_registry import target_registry
 from backend.live.store import EventStore
 from backend.core.calibration import load_calibration
 from backend.orchestrator import CombinedPipeline, OrchestratorRequest
+from backend.api.ownership import current_owner, visible
 
 logger = logging.getLogger("backend.live")
 
@@ -178,6 +179,8 @@ class Camera:
     # Clockwise degrees applied to every frame (0/90/180/270), for a phone
     # webcam that sends its picture sideways.
     rotate: int = 0
+    # Account that added it; None for demo cameras (see backend.api.ownership).
+    owner: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -324,6 +327,13 @@ class LiveSession:
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
+        # A capture that outlived stop()'s wait still holds the device. Opening
+        # a USB webcam a second time while it does crashes the process inside
+        # the driver, so let the old one finish first.
+        draining = getattr(self, "_draining", None)
+        if draining is not None:
+            draining.join(timeout=20.0)
+            self._draining = None
         if self.reader.status.state == STOPPED:
             # A stopped reader's iterator has already returned; starting again
             # needs a fresh one rather than a spent generator.
@@ -345,6 +355,8 @@ class LiveSession:
         self.evidence.stop()
         if self._thread is not None:
             self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                self._draining = self._thread
             self._thread = None
         # Wake any viewer still blocked waiting for a frame that will never come.
         with self._condition:
@@ -604,7 +616,7 @@ class LiveSession:
             "camera_name": self.camera.name,
             "severity": severity,
             "reason": reason,
-            "alarm": False if likely_false else self._claim_alarm(event.get("type", ""), severity),
+            "alarm": False if likely_false or event.get("type") in SILENT_TYPES else self._claim_alarm(event.get("type", ""), severity),
             "likely_false": likely_false,
             "wall_time": time.time(),
         }
@@ -823,15 +835,22 @@ class LiveSession:
         mid-run would leave half-initialised state behind.
         """
         was_running = self.is_running
-        if was_running:
-            self.stop()
         self.analysis = spec
         self._analysis_error = None
-        # A stopped reader cannot be restarted - its iterator has already
-        # exited - so a fresh one is required for the next run.
-        self.reader = self._new_reader()
-        if was_running:
-            self.start()
+
+        def restart() -> None:
+            if was_running:
+                self.stop()
+            # A stopped reader cannot be restarted - its iterator has already
+            # exited - so a fresh one is required for the next run.
+            self.reader = self._new_reader()
+            if was_running:
+                self.start()
+
+        # Stopping waits for the capture to release the device and starting
+        # reloads models; done inside the request, that froze the dashboard
+        # for up to half a minute. The feed shows a status card meanwhile.
+        threading.Thread(target=restart, name=f"reconfigure-{self.camera.camera_id}", daemon=True).start()
 
 
 class CameraManager:
@@ -958,7 +977,7 @@ class CameraManager:
             "camera_name": source_name,
             "severity": severity,
             "reason": describe_event(event),
-            "alarm": severity in ALARM_SEVERITIES,
+            "alarm": severity in ALARM_SEVERITIES and event.get("type") not in SILENT_TYPES,
             "wall_time": time.time(),
         }
         self._unattached.append(enriched)
@@ -984,7 +1003,7 @@ class CameraManager:
     def recent_events(self, limit: int = 100, camera_id: str | None = None) -> list[dict]:
         """Recent events across the fleet, newest last."""
         sessions = [self.get(camera_id)] if camera_id else self.list()
-        collected: list[dict] = [] if camera_id else list(self._unattached)
+        collected: list[dict] = [] if camera_id or not visible(None) else list(self._unattached)
         for session in sessions:
             if session is not None:
                 collected.extend(session.recent_events(limit))
@@ -997,6 +1016,7 @@ class CameraManager:
         camera = Camera(
             camera_id=camera_id or uuid.uuid4().hex[:8],
             name=name, source=source, loop=loop, location=location, max_width=max_width, rotate=rotate,
+            owner=current_owner.get() or None,
         )
         session = LiveSession(camera, analysis=analysis, store=self.store)
         session.subscribe(self._fanout)
@@ -1007,11 +1027,12 @@ class CameraManager:
 
     def get(self, camera_id: str) -> LiveSession | None:
         with self._lock:
-            return self._sessions.get(camera_id)
+            session = self._sessions.get(camera_id)
+        return session if session is not None and visible(session.camera.owner) else None
 
     def list(self) -> list[LiveSession]:
         with self._lock:
-            return list(self._sessions.values())
+            return [s for s in self._sessions.values() if visible(s.camera.owner)]
 
     def remove(self, camera_id: str) -> bool:
         with self._lock:

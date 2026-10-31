@@ -172,8 +172,10 @@ def downscale_for_analysis(image: np.ndarray, max_width: int | None) -> np.ndarr
     )
 
 
-# Webcam index -> the capture backend that opened it, when DirectShow did not.
-_WEBCAM_BACKEND: dict[int, int] = {}
+# DirectShow opens of two webcams at the same moment fail ("raised unknown C++
+# exception") - seen when the webcam scan probed while a camera was starting.
+# Every DirectShow webcam open takes this lock; each holds it under a second.
+WEBCAM_OPEN_LOCK = threading.Lock()
 
 ONLINE = "online"
 CONNECTING = "connecting"
@@ -372,19 +374,18 @@ class LiveStreamReader:
             # back to it when DirectShow cannot open the index.
             index = int(self.source.strip())
             if os.name == "nt":
-                # A webcam DirectShow choked on once goes straight to Media
-                # Foundation afterwards: on a USB webcam opened next to the
-                # built-in one, DirectShow was measured hanging 11s before
-                # failing - and every restart or settings change reopens.
-                if _WEBCAM_BACKEND.get(index) == cv2.CAP_MSMF:
-                    cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
-                else:
+                # DirectShow first, every time. Remembering a webcam as
+                # Media-Foundation-only after one DirectShow failure stuck
+                # two USB webcams on MSMF for good, where they gave black
+                # frames at 1fps; the failure itself was only another open
+                # of a different webcam at the same moment, which the lock
+                # now prevents. MSMF stays the fallback for cameras that
+                # register only there (DroidCam's phone webcam).
+                with WEBCAM_OPEN_LOCK:
                     cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-                    if not cap.isOpened():
-                        cap.release()
-                        cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
-                        if cap.isOpened():
-                            _WEBCAM_BACKEND[index] = cv2.CAP_MSMF
+                if not cap.isOpened():
+                    cap.release()
+                    cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
             else:
                 cap = cv2.VideoCapture(index, cv2.CAP_ANY)
             # Webcams open at 640x480 unless asked; faces at a few metres need

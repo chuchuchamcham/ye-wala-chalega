@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Callable
 
 from backend.config import JOBS_DIR
+from backend.api.ownership import current_owner, visible
 
 
 class JobCancelled(Exception):
@@ -48,6 +49,8 @@ class Job:
     created_at: float = field(default_factory=time.time)
     started_at: float | None = None
     finished_at: float | None = None
+    # Account that started it; None for jobs from before workspaces.
+    owner: str | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False, compare=False)
 
     def progress_info(self) -> dict:
@@ -77,6 +80,7 @@ class Job:
             "error": self.error, "result": self.result, "events": self.events,
             "output_path": self.output_path, "evidence_dir": self.evidence_dir,
             "created_at": self.created_at, "started_at": self.started_at, "finished_at": self.finished_at,
+            "owner": self.owner,
         }
 
 
@@ -110,7 +114,7 @@ class JobManager:
         path.write_text(json.dumps(job.to_manifest(), default=str, indent=2))
 
     def create(self, kind: str, total_frames: int | None = None) -> Job:
-        job = Job(job_id=uuid.uuid4().hex, kind=kind, total_frames=total_frames)
+        job = Job(job_id=uuid.uuid4().hex, kind=kind, total_frames=total_frames, owner=current_owner.get() or None)
         with self._lock:
             self._jobs[job.job_id] = job
         self._persist(job)
@@ -118,11 +122,12 @@ class JobManager:
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
-            return self._jobs.get(job_id)
+            job = self._jobs.get(job_id)
+        return job if job is not None and visible(job.owner) else None
 
     def list(self) -> list[Job]:
         with self._lock:
-            return list(self._jobs.values())
+            return [j for j in self._jobs.values() if visible(j.owner)]
 
     def start(self, job: Job, target: Callable[[Callable[[float], None]], dict]) -> None:
         """Runs `target(progress_cb)` on a background thread. `target` must

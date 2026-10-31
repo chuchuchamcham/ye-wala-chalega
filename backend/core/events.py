@@ -86,6 +86,9 @@ EVENT_SEVERITY: dict[str, str] = {
 # What an external siren/alarm responds to. Deliberately narrow: an alarm that
 # fires on routine events stops being treated as an alarm.
 ALARM_SEVERITIES = frozenset({HIGH, CRITICAL})
+# Shown and logged as HIGH, but silent: a tamper warning fired on people
+# walking close to the lens, and an operator who hears false sirens stops listening.
+SILENT_TYPES = frozenset({"CAMERA_TAMPERED"})
 
 
 def severity_of(event_type: str) -> str:

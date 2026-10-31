@@ -37,6 +37,9 @@ from backend.api.live import router as live_router
 from backend.api.handover import router as handover_router
 from backend.api.map_routes import router as map_router
 from backend.api.onvif_routes import router as onvif_router
+from backend.api.webcam_routes import router as webcam_router
+from backend.api.ownership import ownership_middleware
+from backend.live.warmup import warm_up_models
 from backend.api.sensor_routes import router as sensor_router
 from backend.api.sensor_routes import warm_up as warm_up_sensors
 from backend.api.talkdown_routes import router as talkdown_router
@@ -85,6 +88,7 @@ async def lifespan(app: FastAPI):
     # Camera health is only useful if something is watching it continuously;
     # this is what turns a dropout into a CAMERA_OFFLINE event.
     camera_manager.start_monitor()
+    warm_up_models()
     warm_up_sensors()
     talkdown.start()
     search_routes.start()
@@ -114,6 +118,7 @@ app = FastAPI(title="Drishti API", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(live_router)
 app.include_router(onvif_router)
+app.include_router(webcam_router)
 app.include_router(map_router)
 app.include_router(handover_router)
 app.include_router(agent_router)
@@ -123,6 +128,8 @@ app.include_router(siren_router)
 app.include_router(search_routes.router)
 app.include_router(feedback_router)
 app.include_router(satellite_router)
+app.middleware("http")(ownership_middleware)
+
 
 
 @app.middleware("http")

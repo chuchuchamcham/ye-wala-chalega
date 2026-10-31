@@ -151,6 +151,22 @@
     osc.start();
   }
 
+  // A camera going off is a fault, not an intrusion: three short falling beeps.
+  function offlineBeeps() {
+    if (!audio) return;
+    [880, 660, 440].forEach((hz, i) => {
+      const at = audio.currentTime + i * 0.18;
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = "square";
+      o.frequency.setValueAtTime(hz, at);
+      o.connect(g).connect(audio.destination);
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.6, at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
+      o.start(at); o.stop(at + 0.15);
+    });
+  }
+
   function stopTone() {
     if (!osc) return;
     try {
@@ -272,7 +288,7 @@
     $("armBtn").className = "silence";
 
     showEvidence(ev);
-    startTone();
+    if (ev.type === "CAMERA_OFFLINE") offlineBeeps(); else startTone();
     if (navigator.vibrate) navigator.vibrate([400, 180, 400, 180, 700]);
     // Let the siren be heard first, then say what happened.
     setTimeout(() => announce(ev), 1500);

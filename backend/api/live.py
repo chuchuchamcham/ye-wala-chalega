@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -130,6 +131,9 @@ class CameraCreateRequest(BaseModel):
     )
 
 
+_rotate_lock = threading.Lock()
+
+
 class RotateRequest(BaseModel):
     degrees: Literal[0, 90, 180, 270]
 
@@ -192,11 +196,36 @@ def rotate_camera(camera_id: str, req: RotateRequest) -> dict:
     """Turn a sideways picture upright. Restarts capture so the new rotation
     applies from the next frame; analysis settings are kept."""
     session = _require(camera_id)
-    was_running = session.is_running
-    session.stop()
-    session.camera.rotate = req.degrees
-    if was_running:
-        session.start()
+    # Two rotate clicks arriving together would each stop and reopen the same
+    # webcam at once, and a USB webcam opened twice in parallel crashed the
+    # whole process inside the driver.
+    with _rotate_lock:
+        if session.camera.rotate == req.degrees:
+            return session.status_dict()
+        was_running = session.is_running
+        session.stop()
+        session.camera.rotate = req.degrees
+        if was_running:
+            session.start()
+    return session.status_dict()
+
+
+# Accuracy: more pixels for reading plates and far faces, at fewer frames.
+# Speed: fewer pixels, more frames, for a busy CPU or close-up faces.
+QUALITY_PRESETS = {"accuracy": (1280, 10.0), "balanced": (DEFAULT_MAX_ANALYSIS_WIDTH, 12.0), "speed": (640, 15.0)}
+
+
+class QualityRequest(BaseModel):
+    mode: Literal["accuracy", "balanced", "speed"]
+
+
+@router.post("/cameras/{camera_id}/quality")
+def set_camera_quality(camera_id: str, req: QualityRequest) -> dict:
+    """Trade analysis resolution against frame rate for one camera.
+    Restarts capture in the background; analysis settings are kept."""
+    session = _require(camera_id)
+    session.camera.max_width, session.camera.target_fps = QUALITY_PRESETS[req.mode]
+    session.configure_analysis(session.analysis)
     return session.status_dict()
 
 
@@ -587,6 +616,8 @@ def list_evidence(camera_id: str | None = None, limit: int = 50) -> list[dict]:
     if not root.is_dir():
         return []
     camera_dirs = [root / camera_id] if camera_id else [d for d in root.iterdir() if d.is_dir()]
+    # Only this account's cameras (see backend.api.ownership).
+    camera_dirs = [d for d in camera_dirs if camera_manager.get(d.name) is not None]
 
     bundles = []
     for camera_dir in camera_dirs:
@@ -647,6 +678,7 @@ def get_evidence_asset(camera_id: str, bundle_id: str, asset: str) -> FileRespon
         raise HTTPException(404, "unknown evidence asset")
     # Basename-only on every segment: these are URL path parameters, and an
     # evidence store is exactly the kind of place a traversal would be aimed at.
+    _require(camera_id)
     path = EVIDENCE_DIR / "live" / Path(camera_id).name / Path(bundle_id).name / asset
     if not path.is_file():
         raise HTTPException(404, "evidence asset not found")

@@ -98,3 +98,38 @@ export function vibrateAlert(): void {
     /* unsupported; the sound is the primary signal */
   }
 }
+
+/**
+ * A camera going off is a fault, not an intrusion, so it gets its own short
+ * sound: three quick falling beeps, nothing like the wailing siren.
+ */
+export async function playOfflineTone(): Promise<boolean> {
+  const audio = getContext();
+  if (!audio) return false;
+  try {
+    if (audio.state === "suspended") await audio.resume();
+    if (audio.state !== "running") return false;
+    const start = audio.currentTime;
+    [880, 660, 440].forEach((hz, i) => {
+      const at = start + i * 0.18;
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(hz, at);
+      osc.connect(gain).connect(audio.destination);
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.3, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
+      osc.start(at);
+      osc.stop(at + 0.15);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The right sound for an alarm: the short tone for a camera going off, the siren otherwise. */
+export function playAlarmSound(type: string | undefined): Promise<boolean> {
+  return type === "CAMERA_OFFLINE" ? playOfflineTone() : playSiren();
+}
